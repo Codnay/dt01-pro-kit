@@ -44,6 +44,10 @@ password (to install the services). At the end it prints the four addresses.
 That is all. The four pages start by themselves every time the robot computer
 boots.
 
+If the account that runs the robot is not an administrator, do it in two
+steps: `./setup.sh --no-services` as that account, then
+`sudo KIT_USER=<account> ./setup.sh --services-only` as an administrator.
+
 ## Drive the base and the lift
 
 1. On the robot: pull the red e-stop **out**. On the remote control: switch
