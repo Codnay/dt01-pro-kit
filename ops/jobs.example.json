@@ -1,0 +1,139 @@
+{
+  "_comment": [
+    "TEMPLATE. setup.sh turns this into ops/jobs.json, which is local to this",
+    "robot and is not tracked by git. Edit that copy (here or from the panel's",
+    "Jobs tab), not this file.",
+    "",
+    "Per-robot values:",
+    "  - the --camera name:serial pairs of the cameras job. Serials are printed",
+    "    by `.venv/bin/python -m arms.cameras --list`.",
+    "  - --arm right | left | both in the teleop job.",
+    "ROBOT_ID is not set here: it comes from .env.",
+    "",
+    "stop.signal is SIGINT on purpose. Ctrl+C is the only tested way to stop",
+    "the teleop job: it parks the arms. The teleop job is never force-killed",
+    "automatically, because a kill in the middle of that leaves an arm latched",
+    "in an emergency stop until it is power-cycled."
+  ],
+  "project_dir": "~/dt01-pro-kit",
+  "python": "{project_dir}/.venv/bin/python",
+  "common_env": {
+    "HOME": "{home}",
+    "PATH": "{project_dir}/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+    "VIRTUAL_ENV": "{project_dir}/.venv",
+    "PYTHONPATH": "{project_dir}",
+    "PYTHONUNBUFFERED": "1",
+    "PYTHONIOENCODING": "utf-8",
+    "PIPER_LOG_COLOR": "1"
+  },
+  "links": [
+    {
+      "label": "VR page",
+      "port": 8443,
+      "scheme": "https"
+    },
+    {
+      "label": "Cameras",
+      "port": 5175
+    },
+    {
+      "label": "Base + lift",
+      "port": 8800
+    }
+  ],
+  "can": {
+    "bitrate": 1000000,
+    "roles": {
+      "right": "can_right",
+      "left": "can_left"
+    }
+  },
+  "actions": [
+    {
+      "id": "reclaim-left",
+      "name": "Reclaim CAN control (left)",
+      "blurb": "Clears a latched emergency stop or teach mode on the left arm so teleop can take command again.",
+      "argv": [
+        "{python}",
+        "scripts/piper/reclaim_can_control.py",
+        "--arm",
+        "left",
+        "--verify"
+      ],
+      "requires_arms_stopped": true,
+      "timeout_sec": 60,
+      "confirm": "Sends control-mode messages only: it does not enable motors and cannot move the arm. Afterwards the arm follows commands again, so keep clear of it."
+    },
+    {
+      "id": "reclaim-right",
+      "name": "Reclaim CAN control (right)",
+      "blurb": "Clears a latched emergency stop or teach mode on the right arm so teleop can take command again.",
+      "argv": [
+        "{python}",
+        "scripts/piper/reclaim_can_control.py",
+        "--arm",
+        "right",
+        "--verify"
+      ],
+      "requires_arms_stopped": true,
+      "timeout_sec": 60,
+      "confirm": "Sends control-mode messages only: it does not enable motors and cannot move the arm. Afterwards the arm follows commands again, so keep clear of it."
+    }
+  ],
+  "jobs": [
+    {
+      "id": "cameras",
+      "name": "Cameras",
+      "argv": [
+        "{python}",
+        "-u",
+        "-m",
+        "arms.cameras",
+        "--camera",
+        "left-arm:427622273938",
+        "--camera",
+        "top:427622272844",
+        "--camera",
+        "right-arm:427622273567"
+      ],
+      "stop": {
+        "signal": "SIGINT",
+        "grace_sec": 30,
+        "repeat_signal": false,
+        "auto_force": true,
+        "force_warning": "Force-stopping the cameras only cuts the live video. No hardware risk."
+      },
+      "match": [
+        "arms.cameras"
+      ],
+      "collateral": []
+    },
+    {
+      "id": "teleop",
+      "name": "Arm teleop",
+      "env": {
+        "PIPER_HOME_SPEED_PERCENT": "5"
+      },
+      "argv": [
+        "{python}",
+        "-u",
+        "-m",
+        "arms.teleop",
+        "--arm",
+        "both",
+        "--robot-process"
+      ],
+      "stop": {
+        "signal": "SIGINT",
+        "grace_sec": 60,
+        "repeat_signal": false,
+        "auto_force": false,
+        "force_warning": "DANGER: force-killing interrupts the arms' controlled stop and can leave an arm latched in an emergency stop with its drivers off. It will not re-enable until you unplug and re-plug its power. Only force when the job is provably stuck."
+      },
+      "match": [
+        "arms.teleop"
+      ],
+      "collateral": []
+    }
+  ]
+}

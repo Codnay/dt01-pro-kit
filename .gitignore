@@ -1,0 +1,14 @@
+# Secrets and per-robot state: never committed.
+.env
+.env.*
+!.env.example
+config/
+ops/jobs.json
+ops/jobs.json.bak
+ops/state/
+ops/logs/
+
+.venv/
+__pycache__/
+*.pyc
+.DS_Store

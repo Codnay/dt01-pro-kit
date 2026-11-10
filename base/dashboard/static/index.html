@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DT-01 Control</title>
+<link rel="stylesheet" href="app.css">
+<link rel="icon" href="data:,">
+</head>
+<body>
+
+<header>
+  <div class="brand">DT-01 CONTROL<small id="linkHost">not connected</small></div>
+
+  <span class="chip" id="chipState"><span class="dot"></span><span>—</span></span>
+  <span class="chip" id="chipLoc"><span class="dot"></span><span>—</span></span>
+  <span class="chip" id="chipFeed"><span class="dot"></span><span>feed</span></span>
+  <span class="chip bad" id="chipSafety" hidden><span class="dot"></span><span>interlocks</span></span>
+  <span class="chip" id="chipControl"><span class="dot"></span><span>—</span></span>
+
+  <div class="spacer"></div>
+
+  <div class="stat"><b id="statBattery">—</b><span>battery</span></div>
+  <div class="stat"><b id="statSpeed">—</b><span>speed m/s</span></div>
+  <div class="stat"><b id="statTurn">—</b><span>yaw rad/s</span></div>
+
+  <button class="btn" id="controlBtn">Take control</button>
+  <button class="estop" id="estopBtn">EMERGENCY STOP</button>
+</header>
+
+<div class="safety" id="safetyBar"><b>BLOCKED</b><span id="safetyText"></span></div>
+
+<main>
+  <!-- ------------------------------------------------------------- map -->
+  <section class="col" id="mapCol">
+    <button class="collapse" id="mapToggle" aria-expanded="true">
+      <span class="caret">&#9662;</span>
+      <span>Map</span>
+      <small id="mapSummary"></small>
+    </button>
+    <div class="mapbody" id="mapBody">
+    <div class="mapwrap">
+      <canvas id="map"></canvas>
+      <div class="maptools">
+        <button class="btn" id="mapFit">Fit</button>
+        <button class="btn on" id="mapScan">Laser</button>
+        <button class="btn on" id="mapPath">Path</button>
+        <button class="btn" id="mapReload">Reload map</button>
+      </div>
+      <div class="mapreadout" id="mapReadout">—</div>
+      <div class="maplegend">
+        <span><i style="background:#4a9eff"></i>robot</span>
+        <span><i style="background:#3fb950"></i>nav point</span>
+        <span><i style="background:#d29922"></i>charge point</span>
+        <span><i style="background:#b39ce8"></i>inspect point</span>
+        <span><i style="background:#f85149"></i>laser return</span>
+      </div>
+    </div>
+    <div class="notices" id="notices"><div class="empty">No notices yet.</div></div>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------------------ tabs -->
+  <section class="col">
+    <div class="tabs" role="tablist">
+      <button role="tab" data-tab="drive" aria-selected="true">Drive</button>
+      <button role="tab" data-tab="lift">Lift</button>
+      <button role="tab" data-tab="obstacles">Obstacles<span class="badge" id="obsBadge" hidden>!</span></button>
+      <button role="tab" data-tab="speed">Speed</button>
+      <button role="tab" data-tab="navigate">Navigate</button>
+      <button role="tab" data-tab="charging">Charging</button>
+      <button role="tab" data-tab="setup">Setup</button>
+    </div>
+
+    <div class="panels">
+
+      <!-- ============================================ DRIVE -->
+      <div class="panel active" id="panel-drive">
+        <div class="card">
+          <h3>Manual drive</h3>
+          <p class="hint">Hold to drive. The base zeroes itself after <span id="deadmanS">0.6</span>s of silence.</p>
+          <div class="note info" id="driveModeNote" hidden></div>
+          <div class="pad">
+            <span class="gap"></span>
+            <button data-drive="fwd"   title="W">&#9650;</button>
+            <span class="gap"></span>
+            <button data-drive="left"  title="A">&#9664;</button>
+            <button class="halt" data-drive="halt" title="Space">STOP</button>
+            <button data-drive="right" title="D">&#9654;</button>
+            <span class="gap"></span>
+            <button data-drive="back"  title="S">&#9660;</button>
+            <span class="gap"></span>
+          </div>
+          <div class="deadman" id="deadmanBar"><i></i></div>
+        </div>
+
+        <div class="card">
+          <h3>Drive speed</h3>
+          <p id="driveProtection" class="note">Obstacle protection: checking…</p>
+          <div class="row">
+            <button class="btn" data-preset="slow" data-needs-control>Slow</button>
+            <button class="btn" data-preset="normal" data-needs-control>Normal</button>
+            <button class="btn" data-preset="fast" data-needs-control>Fast</button>
+          </div>
+          <div class="row">
+            <label class="field" style="flex:1">
+              <span>Linear <b id="linVal">0.20</b> m/s</span>
+              <input type="range" id="linRange" data-needs-control min="0.05" max="0.6" step="0.05" value="0.2">
+            </label>
+          </div>
+          <div class="row">
+            <label class="field" style="flex:1">
+              <span>Angular <b id="angVal">0.45</b> rad/s</span>
+              <input type="range" id="angRange" data-needs-control min="0.1" max="1.0" step="0.05" value="0.45">
+            </label>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Robot mode</h3>
+          <div class="row">
+            <button class="btn" data-state="Idle" data-needs-control>Idle</button>
+            <button class="btn" data-state="Localization" data-needs-control>Localization</button>
+            <button class="btn" data-state="RunningTask" data-needs-control>RunningTask</button>
+          </div>
+          <div class="row">
+            <label class="inline"><input type="checkbox" id="autoMode" data-needs-control> Autonomous driving mode
+              (off = remote driving)</label>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Before anything moves</h3>
+          <p class="hint">Hardware gates the dashboard cannot see. Check these first when nothing moves.</p>
+          <ul class="hint" style="margin:0;padding-left:18px">
+            <li>RC transmitter <b>SWB to middle</b> (CAN/RS-232 mode). In remote mode the
+                transmitter wins and API commands are ignored.</li>
+            <li>RC <b>SWD down</b> to release the remote emergency stop.</li>
+            <li>Physical e-stop on the chassis pulled out.</li>
+          </ul>
+          <div class="row" style="margin-top:10px">
+            <button class="btn" id="preflightBtn">Run preflight</button>
+          </div>
+          <div id="preflightOut"></div>
+        </div>
+      </div>
+
+      <!-- ======================================== OBSTACLES -->
+      <div class="panel" id="panel-lift">
+        <div class="card">
+          <h3>Lifting column</h3>
+          <div class="lift-readout">
+            <b id="liftHeight">&mdash;</b><span>mm</span>
+            <span class="lift-rate" id="liftRate"></span>
+            <span class="lift-act" id="liftAction"></span>
+          </div>
+          <div class="lift-track"><i id="liftBar"></i></div>
+          <div class="lift-scale"><span id="liftMin">50</span><span id="liftMax">850</span></div>
+
+          <div class="note bad" id="liftBlocked" hidden></div>
+
+          <label class="field lift-target">
+            <span>Target <b id="liftGotoVal">450</b> mm</span>
+            <input type="range" id="liftGoto" min="50" max="850" step="10" value="450"
+                   data-needs-control>
+          </label>
+          <div class="row lift-actions">
+            <button class="btn danger" id="liftStop">Stop</button>
+            <span class="spacer"></span>
+            <button class="btn primary wide" id="liftGotoBtn" data-needs-control>Go</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel" id="panel-obstacles">
+        <div class="card full">
+          <h3>Obstacle protection during manual driving</h3>
+          <p id="protectionStatus" class="note">Checking sensor readiness…</p>
+          <button class="btn primary" id="protectionEnable" data-needs-control>Enable obstacle sensors</button>
+          <p class="hint">Engage the physical emergency stop or software brake first. This enables and verifies the available controller safety switches; it never releases the brake. Missing, disabled or stale obstacle readings show a warning and allow manual driving without verified obstacle protection. Detected obstacles and cliff hazards still block movement, including turns.</p>
+          <p class="hint">Laser-based manual stopping and clearance around the arms have not been verified. Sensor configuration is not a physical stopping test.</p>
+          <p id="protectionOptional" class="hint"></p>
+          <label class="field"><span>Maximum sensor age (seconds)</span>
+            <input type="number" id="sensorStale" min="0.5" max="5" step="0.5" value="2" data-needs-control>
+          </label>
+          <p id="protectionFreshness" class="hint"></p>
+        </div>
+        <div class="card">
+          <h3>Proximity</h3>
+          <canvas class="fan" id="fan"></canvas>
+          <div class="row">
+            <label class="field" style="flex:1">
+              <span>Manual obstacle stop distance <b id="alarmVal">0.35</b> m
+                &mdash; checked continuously during manual driving</span>
+              <input type="range" id="alarmRange" data-needs-control min="0.1" max="1.5" step="0.05" value="0.35">
+            </label>
+          </div>
+        </div>
+
+        <div class="card full">
+          <h3>Sensors</h3>
+          <table>
+            <thead><tr><th>Sensor</th><th>Range</th><th></th><th>State</th></tr></thead>
+            <tbody id="sensorRows"><tr><td colspan="4">—</td></tr></tbody>
+          </table>
+        </div>
+
+        <div class="card">
+          <h3>Bumpers &amp; chassis health</h3>
+          <div class="row" id="bumperRow"></div>
+          <table style="margin-top:10px">
+            <thead><tr><th>Device</th><th>Code</th><th>State</th></tr></thead>
+            <tbody id="chassisRows"><tr><td colspan="3">—</td></tr></tbody>
+          </table>
+        </div>
+
+        <div class="card">
+          <h3>Avoidance settings</h3>
+          <div id="obstacleParams"></div>
+        </div>
+      </div>
+
+      <!-- ============================================ SPEED -->
+      <div class="panel" id="panel-speed">
+        <div class="card">
+          <h3>Autonomous speed</h3>
+          <div id="speedParams"></div>
+        </div>
+        <div class="card full">
+          <h3>Live</h3>
+          <dl class="kv">
+            <dt>Commanded</dt><dd id="spCommanded">—</dd>
+            <dt>Reported</dt><dd id="spReported">—</dd>
+            <dt>Manual cap</dt><dd id="spCap">—</dd>
+          </dl>
+        </div>
+      </div>
+
+      <!-- ========================================= NAVIGATE -->
+      <div class="panel" id="panel-navigate">
+        <div class="card" id="navProgressCard" hidden>
+          <h3>Navigating</h3>
+          <dl class="kv">
+            <dt>Target</dt><dd id="navTarget">—</dd>
+            <dt>Status</dt><dd id="navStatus">—</dd>
+            <dt>Remaining</dt><dd id="navRemaining">—</dd>
+            <dt>ETA</dt><dd id="navEta">—</dd>
+          </dl>
+          <div class="row" style="margin-top:10px">
+            <button class="btn danger" id="navStopBtn">Stop task</button>
+          </div>
+        </div>
+
+        <div class="card full">
+          <h3>Points on this map</h3>
+          <div class="row" style="margin-bottom:9px">
+            <button class="btn" id="pointsReload">Reload</button>
+            <span class="hint" id="pointsHint"></span>
+          </div>
+          <div class="pointlist">
+            <table>
+              <thead><tr><th>Name</th><th>Type</th><th>X</th><th>Y</th><th></th></tr></thead>
+              <tbody id="pointRows"><tr><td colspan="5">Reload to list points.</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Save the current pose</h3>
+          <div class="row">
+            <input type="text" id="pointName" placeholder="POINT NAME" style="flex:1">
+            <select id="pointType">
+              <option value="nav">nav</option>
+              <option value="charge">charge</option>
+              <option value="init">init</option>
+              <option value="inspect">inspect</option>
+            </select>
+            <button class="btn primary" id="pointSave" data-needs-control>Save</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Localization</h3>
+          <dl class="kv">
+            <dt>Status</dt><dd id="locStatus">—</dd>
+            <dt>Score</dt><dd id="locScore">—</dd>
+            <dt>Map average</dt><dd id="locAvg">—</dd>
+          </dl>
+          <div class="row" style="margin-top:10px">
+            <select id="locPoint"><option value="">— point to initialise at —</option></select>
+            <label class="inline"><input type="checkbox" id="locTurning" data-needs-control> allow rotation</label>
+            <button class="btn" id="locBtn" data-needs-control>Initialise</button>
+          </div>
+          <div class="note" style="margin:10px 0 0" id="locTurnWarn" hidden>
+            With rotation allowed the robot <b>spins in place</b> to converge. Clear the area.
+          </div>
+        </div>
+      </div>
+
+      <!-- ========================================= CHARGING -->
+      <div class="panel" id="panel-charging">
+        <div class="card">
+          <h3>Battery</h3>
+          <div class="batt"><i id="battFill"></i><b id="battText">—</b></div>
+          <dl class="kv" style="margin-top:11px">
+            <dt>Current</dt><dd id="battCurrent">—</dd>
+            <dt>Voltage</dt><dd id="battVoltage">—</dd>
+            <dt>Temperature</dt><dd id="battTemp">—</dd>
+            <dt>Charge signal</dt><dd id="battChassis">—</dd>
+          </dl>
+          <p class="hint" style="margin-top:9px">Current reads <b>positive</b> while charging. This firmware reports a flat 0.0&nbsp;A, so the charge state is inferred, not measured.</p>
+        </div>
+
+        <div class="card">
+          <h3>Auto charging</h3>
+          <div id="autochargeBox"></div>
+        </div>
+
+        <div class="card">
+          <h3>Dock now</h3>
+          <div class="row">
+            <select id="dockPoint"><option value="">— charge point —</option></select>
+            <button class="btn primary" id="dockBtn" data-needs-control>Dock now</button>
+            <button class="btn danger" id="dockStop">Stop</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Charging pile</h3>
+          <div id="pileBox"><span class="hint">&mdash;</span></div>
+        </div>
+
+        <div class="card">
+          <h3>Docking geometry</h3>
+          <div class="note bad">
+            The reverse into the dock is <b>blind</b>. Vendor default is 3.5&nbsp;m —
+            check it before the first attempt.
+          </div>
+          <div id="chargeParams"></div>
+        </div>
+      </div>
+
+      <!-- ============================================ SETUP -->
+      <div class="panel" id="panel-setup">
+        <div class="card">
+          <h3>Connection</h3>
+          <div class="row">
+            <input type="text" id="hostInput" placeholder="192.168.1.15" style="flex:1">
+            <input type="number" id="portInput" value="1819" style="width:88px">
+            <button class="btn primary" id="connectBtn" data-needs-control>Connect</button>
+          </div>
+          <div class="row">
+            <button class="btn" id="discoverBtn">Scan local network</button>
+            <span class="hint" id="discoverOut"></span>
+          </div>
+          <p class="hint" style="margin-top:9px">The robot's own AP is <code>drobot_5G</code> / <code>12345678</code> on <code>192.168.1.0/24</code>. You have no internet while on it.</p>
+        </div>
+
+        <div class="card">
+          <h3>Maps</h3>
+          <div class="row" id="mapRow"><span class="hint">Reload to list maps.</span></div>
+          <div class="row"><button class="btn" id="mapsReload">Reload maps</button></div>
+        </div>
+
+        <div class="card">
+          <h3>Battery thresholds</h3>
+          <div id="batteryParams"></div>
+        </div>
+
+        <div class="card">
+          <h3>Link budget</h3>
+          <div class="row">
+            <label class="field" style="flex:1">
+              <span>Live updates</span>
+              <select id="streamHz">
+                <option value="5">5 Hz — on the same LAN</option>
+                <option value="2">2 Hz — remote, responsive</option>
+                <option value="1">1 Hz — metered link</option>
+                <option value="0.5">0.5 Hz — minimal</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <div class="card full">
+          <h3>Link health</h3>
+          <dl class="kv" id="linkHealth"><dt>—</dt><dd>—</dd></dl>
+          <div class="row" style="margin-top:10px">
+            <button class="btn" id="paramsReload">Reload parameters</button>
+            <button class="btn danger" id="disconnectBtn" data-needs-control>Disconnect</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script src="map.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

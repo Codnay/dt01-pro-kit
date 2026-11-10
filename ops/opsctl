@@ -1,0 +1,294 @@
+#!/usr/bin/env python3
+"""Command-line half of the ops dashboard -- same supervisor, no browser.
+
+Prefers the running dashboard over HTTP so the two never both claim ownership
+of a job. If the dashboard is down it drives :class:`~supervisor.Supervisor`
+directly, which is the case that matters: the kill path has to work when the
+thing that was supposed to manage the process has itself died.
+
+    ops/opsctl status
+    ops/opsctl start recorder
+    ops/opsctl stop teleop
+    ops/opsctl logs recorder -f
+    ops/opsctl sweep --kill
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import time
+import urllib.error
+import urllib.request
+from pathlib import Path
+from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from ops.config import ConfigError  # noqa: E402
+from ops.supervisor import Supervisor, SupervisorError  # noqa: E402
+
+DEFAULT_URL = os.environ.get("OPS_URL", "http://127.0.0.1:8090")
+
+G, Y, R, D, B, X = (
+    ("\033[32m", "\033[33m", "\033[31m", "\033[90m", "\033[1m", "\033[0m")
+    if sys.stdout.isatty()
+    else ("",) * 6
+)
+
+
+def _http(path: str, method: str = "GET", timeout: float = 10.0) -> Any | None:
+    """Call the dashboard, or return None if it is not listening."""
+    req = urllib.request.Request(f"{DEFAULT_URL}{path}", method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.load(resp)
+    except urllib.error.HTTPError as exc:
+        try:
+            return json.load(exc)
+        except Exception:  # noqa: BLE001
+            return {"ok": False, "error": f"HTTP {exc.code}"}
+    except (urllib.error.URLError, OSError, TimeoutError):
+        return None
+
+
+def dashboard_up() -> bool:
+    """True when a dashboard is listening and can take the request."""
+    return _http("/api/ping") is not None
+
+
+def _need(res: Any | None) -> dict[str, Any]:
+    """Unwrap an HTTP result, or fail loudly if the dashboard went away."""
+    if res is None:
+        raise SupervisorError(
+            f"dashboard at {DEFAULT_URL} stopped responding mid-command"
+        )
+    return res
+
+
+def _fmt(sec: float | None) -> str:
+    if sec is None:
+        return "—"
+    sec = int(sec)
+    if sec >= 86400:
+        return f"{sec // 86400}d{sec % 86400 // 3600}h"
+    if sec >= 3600:
+        return f"{sec // 3600}h{sec % 3600 // 60}m"
+    if sec >= 60:
+        return f"{sec // 60}m{sec % 60}s"
+    return f"{sec}s"
+
+
+def cmd_status(args: argparse.Namespace, sup: Supervisor | None) -> int:
+    data = _need(_http("/api/status")) if sup is None else {"ok": True, **sup.status()}
+    if not data.get("ok"):
+        print(f"{R}error:{X} {data.get('error', 'no response')}")
+        return 1
+    via = "dashboard" if sup is None else "direct (dashboard not running)"
+    print(f"{D}via {via}{X}\n")
+    for job in data["jobs"]:
+        state = job["state"]
+        color = {"running": G, "stopping": Y}.get(state, D)
+        print(f"{B}{job['name']}{X} ({job['id']})  {color}{state.upper()}{X}")
+        if state != "stopped":
+            print(
+                f"  pid {job['pid']}  pgid {job['pgid']}  "
+                f"children {job['children']}  {job['rss_mb']} MB  "
+                f"up {_fmt(job['uptime_sec'])}"
+            )
+            log_path = job.get("log_path")
+            if log_path:
+                print(f"  {D}log {log_path}{X}")
+            else:
+                # Adopted jobs have no log of their own; `opsctl logs` still
+                # falls back to the newest captured run for that job.
+                print(f"  {D}log: adopted, output goes to its launching terminal{X}")
+        prog = job.get("stop_progress")
+        if prog:
+            print(f"  {Y}stopping: {prog['phase']} — {prog['detail']}{X}")
+        if job.get("strays"):
+            print(f"  {Y}untracked copies running: {job['strays']}{X}")
+        last = job.get("last_exit")
+        if state == "stopped" and last:
+            print(f"  {D}last run: {last['reason']}{X}")
+        print()
+    sysinfo = data.get("system")
+    if sysinfo:
+        print(
+            f"{D}{sysinfo['host']}  video spool: {sysinfo['spool_files']} files"
+            f" / {sysinfo['spool_mb']} MB pending upload{X}"
+        )
+    return 0
+
+
+def cmd_start(args: argparse.Namespace, sup: Supervisor | None) -> int:
+    if sup is None:
+        res = _need(_http(f"/api/job/{args.job}/start", "POST"))
+        if not res.get("ok"):
+            print(f"{R}error:{X} {res.get('error')}")
+            return 1
+        print(f"{G}started{X} {args.job} (pid {res['pid']})")
+        print(f"{D}log: {res['log']}{X}")
+        return 0
+    run = sup.start(args.job)
+    print(f"{G}started{X} {args.job} (pid {run.pid})\n{D}log: {run.log_path}{X}")
+    return 0
+
+
+def cmd_stop(args: argparse.Namespace, sup: Supervisor | None) -> int:
+    """Ask a job to stop, then report progress until it is actually gone."""
+    if sup is None:
+        res = _need(
+            _http(
+                f"/api/job/{args.job}/stop" + ("?force=1" if args.force else ""),
+                "POST",
+            )
+        )
+        if not res.get("ok"):
+            print(f"{R}error:{X} {res.get('error')}")
+            return 1
+    else:
+        sup.stop(args.job, force=args.force)
+
+    print(f"stopping {args.job}… {D}(SIGINT to the process group, like Ctrl+C){X}")
+    last = ""
+    while True:
+        time.sleep(1.0)
+        data = (
+            _need(_http("/api/status")) if sup is None else {"ok": True, **sup.status()}
+        )
+        job = next((j for j in data["jobs"] if j["id"] == args.job), None)
+        if job is None:
+            return 1
+        prog = job.get("stop_progress")
+        if prog and prog["detail"] != last:
+            last = prog["detail"]
+            print(f"  {D}[{_fmt(prog['elapsed_sec'])}]{X} {prog['detail']}")
+        if prog and prog.get("needs_force"):
+            print(
+                f"\n{Y}{job['name']} did not stop on its own.{X}\n"
+                f"{job.get('force_warning', '')}\n"
+                f"Escalate with: {B}ops/opsctl stop {args.job} --force{X}"
+            )
+            return 2
+        if job["state"] == "stopped":
+            print(f"{G}✓ stopped{X}")
+            return 0
+
+
+def cmd_adopt(args: argparse.Namespace, sup: Supervisor | None) -> int:
+    """Take over a stack that was started by hand, so stop/logs work on it."""
+    if sup is None:
+        q = f"?pid={args.pid}" if args.pid else ""
+        res = _need(_http(f"/api/job/{args.job}/adopt{q}", "POST"))
+        if not res.get("ok"):
+            print(f"{R}error:{X} {res.get('error')}")
+            return 1
+        pid = res["pid"]
+    else:
+        pid = sup.adopt(args.job, args.pid).pid
+    print(f"{G}adopted{X} {args.job} (pid {pid}) — stop now works from the panel")
+    return 0
+
+
+def cmd_sweep(args: argparse.Namespace, sup: Supervisor | None) -> int:
+    if sup is None:
+        res = _need(_http("/api/sweep", "POST" if args.kill else "GET", timeout=30))
+        found = res.get("found", [])
+    else:
+        found = sup.sweep(kill=args.kill)
+    if not found:
+        print(f"{G}✓ no stray processes{X}")
+        return 0
+    for item in found:
+        risk = R if item["risk"] == "high" else D
+        mark = f" {G}killed{X}" if item.get("killed") else ""
+        print(
+            f"{risk}{item['pid']:>8}{X}  {item['kind']}  "
+            f"{D}age {_fmt(item['age_sec'])}{X}{mark}\n"
+            f"          {D}{item['cmd'][:150]}{X}"
+        )
+    if not args.kill:
+        print(f"\n{D}re-run with --kill to clean these up{X}")
+    return 0
+
+
+def cmd_logs(args: argparse.Namespace, sup: Supervisor | None) -> int:
+    """Print a job's log; with -f, keep printing as it grows."""
+    sup = sup or Supervisor()
+    seen = 0
+    while True:
+        data = sup.log_tail(args.job, max_bytes=1_000_000)
+        text = data["text"]
+        if not args.follow:
+            print(text)
+            return 0
+        if len(text) > seen:
+            sys.stdout.write(text[seen:])
+            sys.stdout.flush()
+            seen = len(text)
+        time.sleep(1.0)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="opsctl",
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    sub = parser.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("status", help="what is running")
+    for name, helptext in (("start", "launch a job"), ("stop", "shut a job down")):
+        p = sub.add_parser(name, help=helptext)
+        p.add_argument("job")
+        if name == "stop":
+            p.add_argument(
+                "--force",
+                action="store_true",
+                help="SIGKILL the process group. For the teleop stack this can "
+                "strand the arm in E-stop — read the warning first.",
+            )
+    p = sub.add_parser(
+        "adopt", help="take over a job that was started outside the dashboard"
+    )
+    p.add_argument("job")
+    p.add_argument("--pid", type=int, default=None)
+    p = sub.add_parser("logs", help="show a job's log")
+    p.add_argument("job")
+    p.add_argument("-f", "--follow", action="store_true")
+    p = sub.add_parser("sweep", help="find processes no job accounts for")
+    p.add_argument("--kill", action="store_true")
+    args = parser.parse_args(argv)
+
+    # `logs` always reads files directly; everything else defers to the
+    # dashboard when one is up so ownership stays in exactly one place.
+    sup: Supervisor | None = None
+    if args.cmd == "logs" or not dashboard_up():
+        try:
+            sup = Supervisor()
+        except ConfigError as exc:
+            print(f"{R}config error:{X} {exc}", file=sys.stderr)
+            return 2
+
+    handler = {
+        "status": cmd_status,
+        "start": cmd_start,
+        "stop": cmd_stop,
+        "sweep": cmd_sweep,
+        "logs": cmd_logs,
+        "adopt": cmd_adopt,
+    }[args.cmd]
+    try:
+        return handler(args, sup)
+    except (SupervisorError, ConfigError) as exc:
+        print(f"{R}error:{X} {exc}", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        print()
+        return 130
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

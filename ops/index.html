@@ -1,0 +1,1621 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>DT-01 Pro panel</title>
+<style>
+  /* Instrument-panel styling. Two rules hold the whole thing together:
+     COLOUR MEANS STATE. Green/amber/violet/red are reserved for what the robot
+     is doing. Nothing is coloured to look nice, so a coloured pixel anywhere on
+     this page is information -- which is why the buttons are monochrome and
+     there is no brand accent.
+     MONO IS THE VOICE. Labels, numbers, states and controls are monospace and
+     upper-case; the proportional face is used only for prose that a human reads
+     in sentences. Values are tabular so a changing number does not reflow. */
+  /* Elevation ladder, spaced in perceptual lightness (L*), not in hex steps
+     that look reasonable in a text editor. The previous palette put the page at
+     L*3.0 and a panel at L*5.4 -- a 2.4 step, which is invisible, so every
+     surface read as one flat black field and nothing announced what it was.
+     Steps here are ~7-8 L* apart:
+         page  L*2.2  <  well L*3.6  <  panel L*10.7  <  control L*17.8
+     RAISED MEANS INTERACTIVE. Controls sit on --panel-2 with a --line-2 edge and
+     are the only lifted things on the page. Anything the machine produced --
+     logs, commands, notes, inputs -- is inset on --ink. So "can I click it" is
+     answered by whether it stands up or sinks in, before you read a word. */
+  :root{
+    --bg:#07080a; --panel:#191d24; --panel-2:#262c36; --ink:#0b0d10;
+    --line:#2c323b; --line-2:#414a57;
+    /* text L*: 92 / 70 / 60 -- three clearly separated voices. The old label
+       grey was 2.9:1 on its panel, below any legibility floor at 9.5px. */
+    --text:#e9eef4; --dim:#a2acb8; --dimmer:#8792a0;
+    --ok:#57cf75; --warn:#e6ab45; --bad:#f4675e; --busy:#c095ee;
+    /* The focus ring and the active tab. Deliberately not a colour: an accent
+       hue here would compete with the state lamps for meaning. */
+    --accent:#dde2e8;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+       font:13px/1.55 var(--sans);padding-bottom:40px;
+       -webkit-text-size-adjust:100%;-webkit-font-smoothing:antialiased}
+
+  /* One machine-plate label per unit of information. */
+  .lbl,.stat i,.badge,button,.tabbtn,.links a,summary,th,.pill{
+    font-family:var(--mono);text-transform:uppercase;letter-spacing:.1em}
+
+  /* Top bar. Spans the window so its rule reaches both edges; its contents share
+     main's width and padding so the robot id sits above the first panel's edge. */
+  .topbar{position:sticky;top:0;z-index:30;background:rgba(7,8,10,.95);
+          backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
+  header{max-width:1320px;margin:0 auto;padding:9px 18px;
+         display:flex;gap:18px;align-items:center;flex-wrap:wrap}
+
+  /* Which robot cell this is. A plate, not a badge: the coloured rule at its
+     left is the only thing here that is allowed to be green. */
+  .rid{font:700 13px/1 var(--mono);letter-spacing:.06em;color:var(--text);
+       padding-left:9px;border-left:2px solid var(--ok);height:26px;
+       display:inline-flex;align-items:center;white-space:nowrap}
+  .rid.unset{color:var(--warn);border-left-color:var(--warn);font-weight:500}
+
+  .links{display:flex;gap:16px;flex-wrap:wrap}
+  .links a{font-size:10.5px;font-weight:500;color:var(--dim);text-decoration:none;
+           height:26px;display:inline-flex;align-items:center;
+           border-bottom:1px solid transparent;white-space:nowrap}
+  .links a:hover{color:var(--text);border-bottom-color:var(--line-2)}
+  .spacer{flex:1}
+
+  .tabs{display:flex;gap:0;height:26px;align-items:stretch;background:var(--ink);
+        border:1px solid var(--line);border-radius:4px;overflow:hidden}
+  .tabbtn{background:transparent;border:0;border-right:1px solid var(--line);
+          border-radius:0;color:var(--dim);font-size:10.5px;font-weight:500;
+          padding:0 13px;height:100%;min-height:0;white-space:nowrap;
+          display:inline-flex;align-items:center}
+  .tabbtn:last-child{border-right:0}
+  .tabbtn:hover:not(.on){color:var(--text);background:var(--panel-2)}
+  .tabbtn.on{color:var(--bg);background:var(--text);font-weight:700}
+
+  .tabpanel{display:grid;gap:14px}
+  .tabpanel[hidden]{display:none}
+  main{max-width:1320px;margin:0 auto;padding:18px;display:grid;gap:14px}
+  /* min() on the track floor, or a phone narrower than the minimum gets a column
+     wider than its viewport: the panel overflows and takes the state badge and
+     half the buttons off the right edge. align-items:start, or every panel grows
+     to the tallest one in its row and trails a block of empty background. */
+  .jobs{display:grid;gap:14px;align-items:start;
+        grid-template-columns:repeat(auto-fit,minmax(min(400px,100%),1fr))}
+  .two-col{display:grid;gap:14px;align-items:start;
+           grid-template-columns:repeat(auto-fit,minmax(min(340px,100%),1fr))}
+
+  /* Panels, not cards: hairline, barely rounded, no shadow. Nothing floats. */
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:4px;
+        padding:14px 16px;min-width:0}
+  .card>h2{font:600 11px/1 var(--mono);text-transform:uppercase;letter-spacing:.14em;
+           color:var(--text);margin:0 0 12px;padding-bottom:11px;
+           border-bottom:1px solid var(--line);
+           display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  /* A job panel wears its state on the left edge, so a glance down the column
+     reads before a single word does. */
+  .card.job{position:relative;overflow:hidden;padding-left:19px}
+  .card.job::before{content:"";position:absolute;left:0;top:0;bottom:0;width:2px;
+                    background:var(--line-2);transition:background .2s}
+  .card.job.s-running::before{background:var(--ok)}
+  .card.job.s-stopping::before{background:var(--busy)}
+  .blurb{color:var(--dim);font-size:11.5px;line-height:1.6;margin:0;max-width:64ch}
+
+  /* Indicator lamp plus its label -- the one status vocabulary on the page. */
+  .badge{margin-left:auto;font-size:10px;font-weight:600;letter-spacing:.16em;
+         display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
+  .badge::before{content:"";width:6px;height:6px;border-radius:50%;
+                 background:currentColor;flex:none}
+  .b-running{color:var(--ok)}
+  .b-stopped{color:var(--dimmer)}
+  .b-stopping{color:var(--busy)}
+
+  /* Readouts on a ruled band, the way an instrument prints them. */
+  .grid{display:flex;flex-wrap:wrap;margin:0;
+        border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+  .grid:empty{display:none}
+  .card>h2 + .grid{border-top:0}
+  .blurb + .grid{margin-top:12px}
+  .stat{flex:0 0 auto;min-width:96px;padding:9px 30px 9px 0}
+  .stat i{display:block;font-size:9.5px;font-style:normal;font-weight:500;
+          color:var(--dimmer);margin-bottom:6px}
+  .stat b{display:block;font:500 14px/1.2 var(--mono);color:var(--text);
+          font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis}
+
+  .row{display:flex;gap:7px;flex-wrap:wrap;align-items:center}
+  button{font-size:10.5px;font-weight:500;padding:0 13px;height:30px;
+         border-radius:4px;border:1px solid var(--line-2);background:var(--panel-2);
+         color:var(--text);cursor:pointer;white-space:nowrap;
+         display:inline-flex;align-items:center;justify-content:center;
+         transition:background .13s,border-color .13s,color .13s}
+  button:hover:not(:disabled){background:#303845;border-color:var(--dimmer)}
+  button:disabled{opacity:.3;cursor:not-allowed}
+  /* The one filled control: the primary action reads as a pressed key. */
+  button.primary{background:var(--text);border-color:var(--text);color:var(--bg);
+                 font-weight:700}
+  button.primary:hover:not(:disabled){background:#fff;border-color:#fff}
+  button.primary:disabled{background:transparent;border-color:var(--line);
+                          color:var(--dim);font-weight:500;opacity:.5}
+  button.danger{background:#2b1a1c;border-color:#6d3330;color:var(--bad)}
+  button.danger:hover:not(:disabled){background:#3a2022;border-color:var(--bad)}
+  /* Secondary weight: still a key, just a quieter one. */
+  button.ghost{background:transparent;border-color:var(--line);color:var(--dim)}
+  button.ghost:hover:not(:disabled){background:var(--panel-2);color:var(--text)}
+  button.tab{background:transparent;border-color:transparent;color:var(--dim);
+             padding:0 10px;height:26px}
+  button.tab.on{border-color:var(--line-2);background:var(--panel-2);color:var(--text)}
+  /* .tab is borderless-until-active, which is right for the log tab strip but
+     left View/Edit command on a job card looking like plain text. Inside a job's
+     button row they get an edge, so everything clickable there looks clickable. */
+  .jbtns .tab{border-color:var(--line);color:var(--dim)}
+  .jbtns .tab:hover:not(:disabled){color:var(--text)}
+  /* Square, so a row of them reads as a toolbar rather than ragged text. The
+     label lives on title/aria-label -- an icon with no name is a guess. */
+  .iconbtn{width:30px;padding:0;flex:0 0 auto}
+  .iconbtn svg{width:15px;height:15px;display:block}
+  /* Tooltip. The native title= arrives after about a second in the OS's own
+     styling, which on this panel reads as something the browser said rather
+     than something the page said. Opens upward: .card.job clips its overflow to
+     keep the state strip square, so a tooltip below the button row would be cut
+     in half. aria-label still carries the name for anything not hovering. */
+  .tip{position:relative}
+  .tip::after{content:attr(data-tip);position:absolute;bottom:calc(100% + 7px);
+    left:50%;transform:translateX(-50%);white-space:nowrap;z-index:5;
+    background:var(--panel-2);color:var(--text);border:1px solid var(--line-2);
+    border-radius:4px;padding:5px 8px;font:500 9.5px/1 var(--mono);
+    text-transform:uppercase;letter-spacing:.1em;pointer-events:none;
+    opacity:0;transition:opacity .12s .3s;box-shadow:0 6px 18px rgba(0,0,0,.55)}
+  .tip:hover::after,.tip:focus-visible::after{opacity:1}
+  /* The icon buttons sit flush with the panel's right edge, and .card.job clips
+     its overflow, so a centred tooltip was cut off mid-word. Anchoring it to the
+     button's right edge makes it grow inward, where there is always room --
+     and keeps it off the viewport edge on the right-hand card. */
+  .iconbtn.tip::after{left:auto;right:0;transform:none}
+  :where(button,select,input,textarea,a,summary):focus-visible{
+    outline:1px solid var(--accent);outline-offset:2px}
+
+  input,textarea,select{font:inherit;background:var(--ink);color:var(--text);
+        border:1px solid var(--line);border-radius:4px;padding:8px 10px;
+        width:100%;max-width:100%}
+  input:focus,textarea:focus,select:focus{border-color:var(--dim);outline:none}
+  textarea{font-family:var(--mono);font-size:12px;line-height:1.65;resize:vertical}
+  select{width:auto;max-width:100%;font-family:var(--mono);font-size:11.5px;
+         padding:6px 8px}
+
+  /* Wells: anything the machine wrote, on the darkest ground on the page. */
+  .cmd{background:var(--ink);border:1px solid var(--line);border-radius:4px;
+       padding:10px 11px;font-family:var(--mono);font-size:11px;line-height:1.6;
+       color:var(--dim);white-space:pre-wrap;word-break:break-all;margin:12px 0 0;
+       max-height:96px;overflow:auto}
+
+  /* The log pane is a plain scroll container that we only ever APPEND to.
+     Re-setting its text on a timer is what made it blink and lose scroll
+     position, so incremental appends are load-bearing, not an optimisation. */
+  pre.log{background:var(--ink);border:1px solid var(--line);border-radius:4px;
+          padding:12px 13px;font-family:var(--mono);font-size:12px;line-height:1.5;
+          height:min(58vh,560px);overflow:auto;white-space:pre-wrap;
+          word-break:break-word;margin:0;overflow-anchor:none;color:#c2c9d1}
+  /* ANSI SGR rendering. The supervised jobs run with PIPER_LOG_COLOR=1, so the
+     captured log carries the same escape codes the terminal shows. */
+  pre.log .b{font-weight:700}
+  pre.log .d{opacity:.62}
+  pre.log .i{font-style:italic}
+  pre.log .u{text-decoration:underline}
+
+  details{border-top:1px solid var(--line);margin-top:14px;padding-top:12px}
+  summary{cursor:pointer;color:var(--dim);font-size:10.5px;font-weight:500;
+          user-select:none;padding-left:4px}
+  summary:hover{color:var(--text)}
+  details>div{padding-top:13px;display:grid;gap:10px}
+
+  /* Notes are ruled at the edge rather than filled: a block of colour would
+     shout as loudly as a state lamp and mean much less. */
+  .note{border:0;border-left:2px solid var(--line-2);background:var(--ink);
+        border-radius:0 4px 4px 0;padding:9px 12px;font-size:11.5px;
+        line-height:1.6;margin-top:10px;color:var(--dim)}
+  .note.warn{border-left-color:var(--warn);color:#e3bf85}
+  .note.bad{border-left-color:var(--bad);color:#f0a09a}
+  .note.ok{border-left-color:var(--ok);color:#93d6a5}
+  .note.info{border-left-color:var(--line-2);color:var(--dim)}
+  .note b{color:var(--text);font-weight:600}
+
+  table{width:100%;border-collapse:collapse;font-size:11.5px;
+        font-variant-numeric:tabular-nums}
+  th,td{text-align:left;padding:7px 10px 7px 0;border-bottom:1px solid var(--line);
+        vertical-align:top}
+  th{color:var(--dimmer);font-weight:500;font-size:9.5px}
+  td{font-family:var(--mono)}
+  td.cmd-cell{font-size:10.5px;color:var(--dim);word-break:break-all}
+  .risk-high{color:var(--bad)} .risk-low{color:var(--dim)}
+  .muted{color:var(--dim);font-size:11.5px}
+  label.field{display:grid;gap:7px;font:500 9.5px/1 var(--mono);
+              text-transform:uppercase;letter-spacing:.12em;color:var(--dimmer)}
+  label.inline{display:flex;gap:6px;align-items:center;font-size:11.5px;
+               color:var(--dim);white-space:nowrap}
+  /* The browser default is a saturated blue tick, the one colour on the page
+     that would mean nothing. */
+  label.inline input{width:auto}
+  input[type=checkbox]{accent-color:#8792a0;width:15px;height:15px}
+  .scrollwrap{overflow-x:auto}
+
+  /* Arm config: one document, so the only styling it needs is a comfortable
+     editor and a header note. */
+  .armwhen{font-size:10px;color:var(--dimmer);font-weight:400;
+           text-transform:none;letter-spacing:0;margin-left:auto}
+  .armpathline{margin:11px 0 0;font-size:10.5px}
+  #armtext{font-family:var(--mono);font-size:12px;line-height:1.6}
+
+  /* One adapter per ruled line, like a patch panel. */
+  .can-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:14px;
+           align-items:center;padding:11px 0;border-bottom:1px solid var(--line)}
+  .can-id{font-family:var(--mono);font-size:12px;min-width:0}
+  .can-id b{color:var(--text);font-weight:600}
+  .can-meta{color:var(--dimmer);font-size:10.5px;margin-top:5px;
+            font-family:var(--mono);word-break:break-all;letter-spacing:.01em}
+  /* An adapter's metadata is machine output and belongs in mono; an action's
+     description is a sentence and does not. */
+  .can-meta.prose{font-family:var(--sans);font-size:11.5px;color:var(--dim);
+                  letter-spacing:0;word-break:normal;max-width:76ch}
+  .can-row select{min-width:150px}
+  .pill{display:inline-block;font-size:9.5px;font-weight:500;padding:2px 6px;
+        border-radius:3px;border:1px solid var(--line-2);color:var(--dim);
+        margin-left:9px;vertical-align:1px}
+  .pill.up{color:var(--ok);border-color:#2c5638}
+  .pill.down{color:var(--warn);border-color:#5a4620}
+
+  /* State dot, used by the log tabs. */
+  .dot{width:6px;height:6px;border-radius:50%;background:var(--dimmer);flex:none}
+  .dot.running{background:var(--ok)}
+  .dot.stopping{background:var(--busy);animation:pulse 1.2s ease-in-out infinite}
+  @keyframes pulse{50%{opacity:.3}}
+  #logtabs .tab{display:inline-flex;align-items:center;gap:8px}
+  /* An empty banner would still take a grid row and its gap. */
+  #canlock:empty{display:none}
+
+  /* How much of the stop grace is left. A teleop shutdown takes up to a minute
+     and the only thing worse than waiting is not knowing whether waiting is
+     normal. */
+  .bar{height:3px;background:var(--ink);overflow:hidden;margin-top:10px;
+       border:1px solid var(--line)}
+  .bar>span{display:block;height:100%;background:var(--busy);
+            transition:width .6s linear}
+
+  /* Non-blocking feedback. ask() still guards anything destructive, but a modal
+     just to say "started" is one more tap between you and the robot. */
+  #toasts{position:fixed;left:50%;transform:translateX(-50%);bottom:16px;z-index:60;
+          display:flex;flex-direction:column;gap:8px;align-items:center;
+          width:min(560px,calc(100% - 24px));pointer-events:none}
+  .toast{pointer-events:auto;background:var(--panel-2);color:var(--text);
+         border:1px solid var(--line-2);border-left:2px solid var(--dim);
+         border-radius:0 4px 4px 0;padding:10px 14px;font-size:12px;max-width:100%;
+         box-shadow:0 10px 30px rgba(0,0,0,.6);animation:rise .16s ease-out}
+  .toast.ok{border-left-color:var(--ok)}
+  .toast.bad{border-left-color:var(--bad);color:#f0a09a}
+  @keyframes rise{from{opacity:0;transform:translateY(10px)}}
+
+  /* Confirmations. A native confirm() is an OS-grey box with the browser's own
+     buttons: it breaks the panel's voice, crams title and consequence into one
+     blob, and on a phone it is indistinguishable from a website nag. <dialog>
+     brings the focus trap, the Esc key and the inert backdrop with it. */
+  dialog{border:0;padding:0;background:transparent;color:var(--text);
+         max-width:min(520px,calc(100% - 24px))}
+  dialog::backdrop{background:rgba(3,4,6,.74)}
+  .askbox{background:var(--panel);border:1px solid var(--line-2);border-radius:5px;
+          padding:17px 19px;box-shadow:0 18px 50px rgba(0,0,0,.6)}
+  .askbox h3{font:600 11px/1 var(--mono);text-transform:uppercase;
+             letter-spacing:.14em;color:var(--text);margin:0 0 12px;
+             padding-bottom:11px;border-bottom:1px solid var(--line)}
+  #askbody p{margin:0 0 11px;font-size:12.5px;line-height:1.65;color:var(--dim)}
+  #askbody p:first-child{color:var(--text)}
+  #askbody p:last-child{margin-bottom:0}
+  .askbtns{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
+
+  @media (max-width:560px){ .can-row{grid-template-columns:1fr} }
+  @media (max-width:640px){
+    main{padding:12px;gap:12px} .card{padding:13px 14px}
+    .card.job{padding-left:17px}
+    header{padding:8px 12px;gap:12px}
+    pre.log{height:52vh}
+    /* Thumb-sized targets, and no button so wide it pushes the row to wrap. */
+    button{height:38px;flex:1 1 auto}
+    button.tab{flex:0 0 auto;height:30px}
+    .tabs{height:34px} .tabbtn{flex:0 0 auto;padding:0 15px}
+    .stat{min-width:78px}
+  }
+  @media (prefers-reduced-motion:reduce){
+    *{animation:none!important;transition:none!important}
+  }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <header>
+    <span class="rid" id="rid" hidden></span>
+    <nav class="tabs" id="tabs">
+      <button class="tabbtn on" data-tab="jobs" onclick="showTab('jobs')">Jobs</button>
+      <button class="tabbtn" data-tab="can" onclick="showTab('can')">CAN &amp; arms</button>
+      <button class="tabbtn" data-tab="armcfg" onclick="showTab('armcfg')">configs.py</button>
+    </nav>
+    <div class="spacer"></div>
+    <nav class="links" id="links"></nav>
+  </header>
+</div>
+
+<main>
+  <div id="connbar"></div>
+  <div id="alerts"></div>
+
+  <div class="tabpanel" data-tab="jobs">
+  <section class="jobs" id="jobs"></section>
+
+  <section class="card">
+    <div class="row" style="margin:0 0 12px">
+      <span id="logtabs" class="row" style="gap:4px"></span>
+      <div class="spacer"></div>
+      <label class="inline"><input type="checkbox" id="follow" checked
+        onchange="onFollowToggle()"> follow</label>
+      <label class="inline"><input type="checkbox" id="wrap" checked
+        onchange="onWrapToggle()"> wrap</label>
+      <button class="ghost" onclick="jumpBottom()">latest</button>
+    </div>
+    <pre class="log" id="logpane">select a job</pre>
+  </section>
+
+  <section class="two-col">
+    <div class="card">
+      <h2>Leftover processes</h2>
+      <p class="blurb">Anything running that no job above accounts for:
+        orphaned encoders, workers whose parent died, a second copy of a job.</p>
+      <div class="row" style="margin-top:12px">
+        <button onclick="sweep(false)">Scan</button>
+        <button class="danger" id="sweepkill" onclick="sweep(true)" disabled>
+          Kill listed</button>
+      </div>
+      <div id="sweepout" class="scrollwrap" style="margin-top:12px"></div>
+    </div>
+
+    <div class="card" hidden>
+      <h2>Video spool</h2>
+      <div class="grid" id="sysgrid"></div>
+      <div class="row">
+        <button class="ghost" onclick="clearSpool()">Clear spool</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Configuration</h2>
+    <details>
+      <summary>Edit jobs.json directly</summary>
+      <div>
+        <p class="muted">The escape hatch: add a whole new job (a left-arm
+          variant, a second camera job), or change stop timings. Validated before
+          saving; the previous version is kept as <code>jobs.json.bak</code>.</p>
+        <textarea id="rawcfg" rows="16" spellcheck="false"></textarea>
+        <div class="row">
+          <button class="primary" onclick="saveRaw()">Save config</button>
+          <button class="ghost" onclick="loadRaw()">Reload from disk</button>
+          <span class="muted" id="rawmsg"></span>
+        </div>
+      </div>
+    </details>
+  </section>
+  </div>
+
+  <div class="tabpanel" data-tab="can" hidden>
+  <!-- Both cards below are locked by the same thing: an arm job holding the CAN
+       socket. Stating that once here, rather than in each card, is why the two
+       now look alike -- the badge on each card says whether it is affected, and
+       a blocked button says so itself. -->
+  <div id="canlock"></div>
+
+  <section class="card">
+    <h2>CAN adapters <span class="badge b-stopped" id="canbadge">idle</span></h2>
+    <div id="canout" style="margin-top:14px"></div>
+    <div class="row" style="margin-top:12px">
+      <button class="primary" id="canapply" onclick="canApply()" disabled>
+        Apply assignment</button>
+      <button class="ghost" onclick="loadCan(true)">Rescan</button>
+      <span class="muted" id="canmsg"></span>
+    </div>
+    <pre class="cmd" id="canlog" hidden></pre>
+  </section>
+
+    <section class="card">
+      <h2>Arm recovery <span class="badge b-stopped" id="actionbadge">idle</span></h2>
+      <div id="actionout" style="margin-top:14px"></div>
+    </section>
+  </div>
+
+  <!-- Complete machine-local Python configuration, loaded at stack start. -->
+  <div class="tabpanel" data-tab="armcfg" id="armcfgpanels" hidden>
+  <section class="card">
+    <h2>configs.py <span class="badge b-stopped" id="armbadge">loading</span>
+      <span class="armwhen" id="armnote"></span></h2>
+    <p class="muted">Complete Python configuration for this machine. Comments and formatting
+      are preserved. Saved settings survive dashboard, stack and machine restarts;
+      restart the affected jobs to apply them.</p>
+    <label><input type="checkbox" id="agilexteleop" onchange="setAgilexTeleop(this.checked)" disabled>
+      use_agilex_teleop (experimental)</label>
+    <p class="muted">Teleop-only pose IK and direct joint response. Save and restart teleop to apply.
+      Turn off and restart to restore the existing controller. Homing and presets use normal control.</p>
+    <p class="muted">Tracking-error limits: edit <code>TELEOP_MAX_TRACKING_ERROR_DEG</code>
+      below. Six positive values in degrees, ordered J1–J6, shared by both arms.
+      Targets slow at the limit and resume as the arm follows; teleop stays engaged.
+      An existing command-to-arm gap above twice the limit remains a fault stop.
+      Default: 15° each. Save and restart teleop to apply.</p>
+    <textarea id="armtext" aria-label="configs.py" rows="34" spellcheck="false"
+      autocapitalize="off" autocomplete="off" wrap="off" oninput="armBadge()" disabled></textarea>
+    <div class="row" style="margin-top:12px">
+      <button class="primary" id="armtextsave" onclick="saveArmText()" disabled>Save configs.py</button>
+      <button class="ghost" id="armreload" onclick="loadArmConfig(true)">Reload from disk</button>
+      <span class="muted" id="armtextmsg"></span>
+    </div>
+    <p class="muted armpathline">
+      <code id="armpath"></code> · machine-local, not in git · saved verbatim ·
+      previous version kept as <code>.bak</code>
+    </p>
+  </section>
+  </div>
+</main>
+
+<div id="toasts"></div>
+
+<dialog id="ask">
+  <!-- method="dialog" closes on either button and hands back its value, and
+       Cancel is first so the implicit Enter action is the harmless one. On a
+       panel that stops robot arms, the default answer is no. -->
+  <form method="dialog" class="askbox">
+    <h3 id="asktitle"></h3>
+    <div id="askbody"></div>
+    <div class="askbtns">
+      <button value="no" class="ghost" id="askno">Cancel</button>
+      <button value="yes" id="askyes">Confirm</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+"use strict";
+
+let LAST = null;
+let busy = false;
+const TABS = ["jobs", "can", "armcfg"];
+let activeTab = localStorage.getItem("opsTab") || "jobs";
+// A stored tab that no longer exists (Maintenance moved back under Jobs) would
+// hide every panel and show a blank page.
+if (!TABS.includes(activeTab)) activeTab = "jobs";
+
+function showTab(name){
+  activeTab = name;
+  localStorage.setItem("opsTab", name);
+  for (const el of document.querySelectorAll(".tabpanel"))
+    el.hidden = el.dataset.tab !== name;
+  for (const b of document.querySelectorAll(".tabbtn"))
+    b.classList.toggle("on", b.dataset.tab === name);
+  // Panels only poll while visible, so a freshly opened tab must not show
+  // whatever was true the last time it was looked at.
+  if (name === "can") loadCan();
+  if (name === "jobs") pollLog(true);
+  // Refresh clean buffers on tab open; loadArmConfig preserves unsaved drafts.
+  if (name === "armcfg") loadArmConfig();
+}
+const cards = new Map();   // job id -> {el, refs...} built once, updated in place
+
+async function api(path, opts){
+  const o = Object.assign({headers:{}}, opts || {});
+  if (o.body) o.headers["Content-Type"] = "application/json";
+  const r = await fetch(path, o);
+  let data;
+  try { data = await r.json(); } catch { throw new Error("server returned " + r.status); }
+  if (!r.ok || data.ok === false) throw new Error(data.error || ("HTTP " + r.status));
+  return data;
+}
+
+function fmtDur(s){
+  if (s == null) return "-";
+  s = Math.floor(s);
+  const d = Math.floor(s/86400), h = Math.floor(s%86400/3600),
+        m = Math.floor(s%3600/60), sec = s%60;
+  if (d) return `${d}d ${h}h`;
+  if (h) return `${h}h ${m}m`;
+  if (m) return `${m}m ${sec}s`;
+  return `${sec}s`;
+}
+function fmtAgo(ts){ return ts ? fmtDur(Date.now()/1000 - ts) + " ago" : "-"; }
+function esc(s){
+  return String(s == null ? "" : s).replace(/[&<>"']/g,
+    c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+// Write only when the value actually changed. Touching the DOM on every poll is
+// what made the page look like it was reloading once a second.
+function setText(el, value){ if (el && el.textContent !== value) el.textContent = value; }
+function setHTML(el, value){ if (el && el.dataset.h !== value){ el.dataset.h = value; el.innerHTML = value; } }
+
+// ---- job cards: built once, then mutated ----------------------------------
+
+// Inline SVG rather than an icon font or a CDN: the panel ships as one file and
+// has to render on a Jetson with no route to the internet.
+const ICON_EYE = `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor"
+  stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
+  aria-hidden="true"><path d="M1.8 10S4.9 4.6 10 4.6 18.2 10 18.2 10 15.1 15.4
+  10 15.4 1.8 10 1.8 10Z"/><circle cx="10" cy="10" r="2.4"/></svg>`;
+const ICON_PENCIL = `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor"
+  stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
+  aria-hidden="true"><path d="M4.2 15.8h3.1L15.5 7.6a1.5 1.5 0 0 0 0-2.1l-1-1a1.5
+  1.5 0 0 0-2.1 0L4.2 12.7v3.1Z"/><path d="M11.4 5.5 14.5 8.6"/></svg>`;
+
+function buildCard(job){
+  const el = document.createElement("div");
+  el.className = "card job";
+  el.innerHTML = `
+    <h2><span class="jname"></span><span class="badge b-stopped jbadge"></span></h2>
+    <div class="grid jstats"></div>
+    <div class="jnotes"></div>
+    <div class="row jbtns" style="margin-top:12px">
+      <button class="primary jstart">Start</button>
+      <button class="jstop">Stop</button>
+      <button class="jcancel" style="display:none">Cancel stop</button>
+      <button class="danger jforce" style="display:none">Force stop</button>
+      <div class="spacer"></div>
+      <button class="tab iconbtn tip jviewbtn" data-tip="View command"
+              aria-label="View command">${ICON_EYE}</button>
+      <button class="tab iconbtn tip jeditbtn" data-tip="Edit command"
+              aria-label="Edit command">${ICON_PENCIL}</button>
+    </div>
+    <pre class="cmd jcmd" hidden></pre>
+    <div class="jedit" hidden>
+      <p class="muted" style="margin:12px 0 10px">Change cameras and serials,
+        switch <code>--arm right</code> to <code>--arm both</code>, add flags.
+        Saved to <code>jobs.json</code> and used by the next Start; a running job
+        keeps the command it started with. Not run through a shell, so no pipes.</p>
+      <label class="field">command
+        <textarea class="jcmdedit" rows="8" spellcheck="false"></textarea></label>
+      <label class="field" style="margin-top:10px">environment (KEY=value, one per line)
+        <textarea class="jenv" rows="3" spellcheck="false"></textarea></label>
+      <div class="row" style="margin-top:10px">
+        <button class="primary jsave">Save command</button>
+        <button class="ghost jrevert">Revert</button>
+        <span class="muted jmsg"></span>
+      </div>
+    </div>`;
+  const q = sel => el.querySelector(sel);
+  const refs = {
+    el, name:q(".jname"), badge:q(".jbadge"),
+    stats:q(".jstats"), notes:q(".jnotes"), cmd:q(".jcmd"),
+    start:q(".jstart"), stop:q(".jstop"), force:q(".jforce"),
+    cancel:q(".jcancel"),
+    edit:q(".jedit"), cmdEdit:q(".jcmdedit"), env:q(".jenv"),
+    save:q(".jsave"), revert:q(".jrevert"), msg:q(".jmsg"), dirty:false,
+    viewBtn:q(".jviewbtn"), editBtn:q(".jeditbtn"),
+  };
+  refs.start.onclick = () => act(job.id, "start");
+  refs.stop.onclick  = () => act(job.id, "stop");
+  refs.force.onclick = () => forceStop(job.id);
+  refs.cancel.onclick = () => cancelStop(job.id);
+  refs.save.onclick  = () => saveCmd(job.id);
+  refs.revert.onclick = () => { refs.dirty = false; refs.msg.textContent = ""; refresh(); };
+
+  // The command is long enough to dominate the card, so it is behind a toggle.
+  // View and Edit are mutually exclusive: only one panel is ever open.
+  const show = (which) => {
+    const viewOn = which === "view" && refs.cmd.hidden;
+    const editOn = which === "edit" && refs.edit.hidden;
+    refs.cmd.hidden = !viewOn;
+    refs.edit.hidden = !editOn;
+    refs.viewBtn.classList.toggle("on", viewOn);
+    refs.editBtn.classList.toggle("on", editOn);
+  };
+  refs.viewBtn.onclick = () => show("view");
+  refs.editBtn.onclick = () => show("edit");
+  const markDirty = () => { refs.dirty = true; };
+  refs.cmdEdit.oninput = markDirty;
+  refs.env.oninput = markDirty;
+  return refs;
+}
+
+// Which variables are inherited rather than job-specific comes from the server,
+// so the editor cannot drift out of step with common_env and silently copy an
+// inherited variable into every job on save.
+let COMMON_ENV = new Set();
+function envText(job){
+  return Object.entries(job.env || {}).filter(([k]) => !COMMON_ENV.has(k))
+    .map(([k,v]) => `${k}=${v}`).join("\n");
+}
+
+function updateCard(job){
+  let refs = cards.get(job.id);
+  if (!refs){
+    refs = buildCard(job);
+    cards.set(job.id, refs);
+    document.getElementById("jobs").appendChild(refs.el);
+    refs.cmdEdit.value = job.command;
+    refs.env.value = envText(job);
+  }
+  const st = job.state, sp = job.stop_progress;
+  const cardCls = "card job s-" + st;
+  if (refs.el.className !== cardCls) refs.el.className = cardCls;
+  setText(refs.name, job.name);
+  setText(refs.badge, st);
+  const cls = "badge jbadge b-" + st;
+  if (refs.badge.className !== cls) refs.badge.className = cls;
+  setText(refs.cmd, job.command);
+
+  // Only overwrite the editor when the operator is not mid-edit.
+  if (!refs.dirty){
+    if (refs.cmdEdit.value !== job.command) refs.cmdEdit.value = job.command;
+    const et = envText(job);
+    if (refs.env.value !== et) refs.env.value = et;
+  }
+
+  const stats = st === "stopped" ? "" : `
+    <div class="stat"><i>uptime</i><b>${fmtDur(job.uptime_sec)}</b></div>
+    <div class="stat"><i>pid</i><b>${job.pid}</b></div>
+    <div class="stat"><i>children</i><b>${job.children}</b></div>
+    <div class="stat"><i>rss</i><b>${job.rss_mb} MB</b></div>`;
+  setHTML(refs.stats, stats);
+
+  let notes = "";
+  if (job.adopted && st !== "stopped")
+    notes += `<div class="note info">Adopted. Started outside the dashboard, so
+      its output goes to the terminal that launched it and no log is captured
+      here. Stop and status work normally; restart from here for logs.</div>`;
+  if (sp){
+    const left = sp.remaining_sec != null ? ` · ${fmtDur(sp.remaining_sec)} left` : "";
+    // A shutdown can legitimately take three minutes. Showing the grace running
+    // down is what separates "still working" from "wedged", which is the whole
+    // decision behind the force-stop button.
+    const pct = sp.remaining_sec != null && job.grace_sec
+      ? Math.max(0, Math.min(100, 100 * sp.remaining_sec / job.grace_sec)) : null;
+    notes += `<div class="note ${sp.needs_force ? "warn" : "info"}">
+      <b>Stopping: ${esc(sp.phase)}</b>${left}<br>${esc(sp.detail)}
+      ${pct != null ? `<div class="bar"><span style="width:${pct.toFixed(1)}%"></span></div>` : ""}
+      ${sp.needs_force ? `<br><br>If it is still shutting down, use
+        <b>Cancel stop</b> and let it finish; the panel frees up as soon as it
+        exits. Force stop is only for a stack that is provably wedged.` : ""}
+      </div>`;
+  }
+  if (st === "stopped" && job.last_exit){
+    const le = job.last_exit, bad = le.exit_code !== 0 && le.exit_code != null;
+    notes += `<div class="note ${bad ? "bad" : "info"}">Last run: ${esc(le.reason)}
+      · ${fmtAgo(le.exited_at)}${le.ran_for ? " · ran " + fmtDur(le.ran_for) : ""}</div>`;
+  }
+  if ((job.last_cleanup || []).length)
+    notes += `<div class="note ok">Cleared ${job.last_cleanup.length} leftover
+      process(es) before the last start.</div>`;
+  if ((job.strays || []).length)
+    notes += `<div class="note warn">Running as pid ${job.strays.join(", ")} but
+      started outside the dashboard. <b>Adopt</b> it for a working Stop button,
+      or kill it from Leftover processes.
+      <div class="row" style="margin-top:9px">
+        <button onclick="adopt('${job.id}')">Adopt pid ${job.strays[0]}</button>
+      </div></div>`;
+  setHTML(refs.notes, notes);
+
+  refs.start.disabled = st !== "stopped";
+  refs.stop.disabled = st !== "running";
+  const stalled = st === "stopping" && sp && sp.needs_force;
+  const showForce = st === "stopping" && sp && (sp.needs_force || !job.auto_force);
+  refs.force.style.display = showForce ? "" : "none";
+  // A stalled stop must leave an option other than SIGKILL, or the only way
+  // out of the state is the one that can strand the arm.
+  refs.cancel.style.display = stalled ? "" : "none";
+}
+
+// ROBOT_ID from .env names this robot's control and video rooms. Unset is
+// shown rather than hidden, so it is noticed before a session starts.
+function renderRobotId(id){
+  const el = document.getElementById("rid");
+  el.hidden = false;
+  el.className = id ? "rid" : "rid unset";
+  el.title = id
+    ? "ROBOT_ID from .env -- tags this cell's telemetry, episodes and channels"
+    : "ROBOT_ID is not set in .env; this host's data falls back to robot0";
+  setText(el, id || "ROBOT_ID unset");
+  // Names the browser tab too: with several cells open at once, "Piper Ops"
+  // five times over is exactly how you stop the wrong robot.
+  const want = (id || "ops") + " \u00b7 piper";
+  if (document.title !== want) document.title = want;
+}
+
+
+// Themed confirmation. Resolves true only if the operator picks the confirm
+// button: Esc, Cancel and a tap on the backdrop all resolve false, because
+// every caller guards something that moves an arm or deletes footage.
+function ask({title, body, confirmLabel = "Confirm", danger = false}){
+  const dlg = document.getElementById("ask");
+  // Pre-2022 Safari has no <dialog>. Falling back to the native box is ugly;
+  // throwing here would make Stop and Force stop silently do nothing, which on
+  // this panel is the worse of the two.
+  if (!dlg || typeof dlg.showModal !== "function")
+    return Promise.resolve(window.confirm(`${title}\n\n${body}`));
+  if (dlg.open) return Promise.resolve(false);   // a second tap is not an answer
+  setText(document.getElementById("asktitle"), title);
+  const host = document.getElementById("askbody");
+  host.innerHTML = "";
+  for (const para of String(body).split("\n\n")){
+    const el = document.createElement("p");
+    el.textContent = para;          // textContent: callers interpolate job names
+    host.appendChild(el);
+  }
+  const yes = document.getElementById("askyes");
+  yes.textContent = confirmLabel;
+  yes.className = danger ? "danger" : "primary";
+  dlg.returnValue = "";
+  dlg.showModal();
+  document.getElementById("askno").focus();
+  return new Promise(resolve => {
+    dlg.addEventListener("close", () => resolve(dlg.returnValue === "yes"),
+                         {once: true});
+  });
+}
+// Tapping outside the box is a cancel. The dialog fills its own bounds, so a
+// click landing on the element itself landed on the backdrop.
+document.getElementById("ask").addEventListener("click", (e) => {
+  if (e.target.id === "ask") e.target.close("no");
+});
+
+// Transient, non-blocking feedback. Anything destructive still goes through
+// ask(); this is for "it worked", which should not need a tap to dismiss.
+function toast(msg, kind){
+  const host = document.getElementById("toasts");
+  const el = document.createElement("div");
+  el.className = "toast" + (kind ? " " + kind : "");
+  el.textContent = msg;
+  el.onclick = () => el.remove();
+  host.appendChild(el);
+  setTimeout(() => el.remove(), kind === "bad" ? 10000 : 4000);
+}
+
+// A link is either an absolute url (a service on another host) or a port on
+// this one, in which case it is resolved against whatever address the panel is
+// being viewed on -- so the same link works over Tailscale and on the LAN.
+function renderLinks(data){
+  const out = [];
+  const add = (l) => {
+    const href = l.url || `${l.scheme || "http"}://${location.hostname}:${l.port}`;
+    out.push(`<a href="${esc(href)}" target="_blank" rel="noopener">`
+             + `${esc(l.label)}</a>`);
+  };
+  for (const l of (data.links || [])) add(l);
+  for (const job of data.jobs) for (const l of (job.links || [])) add(l);
+  setHTML(document.getElementById("links"), out.join(""));
+}
+
+let LAST_STATES = "";
+
+function render(data){
+  const states = data.jobs.map(j => `${j.id}:${j.state}`).join(",");
+  if (LAST_STATES && states !== LAST_STATES && activeTab === "can") loadCan();
+  LAST_STATES = states;
+  LAST = data;
+  if (data.common_env_keys) COMMON_ENV = new Set(data.common_env_keys);
+  setHTML(document.getElementById("alerts"), data.config_error
+    ? `<div class="note bad"><b>jobs.json is invalid.</b> The last good config
+       is still in use. ${esc(data.config_error)}</div>` : "");
+  for (const job of data.jobs) updateCard(job);
+  renderRobotId(data.robot_id);
+  renderLinks(data);
+  buildLogTabs(data.jobs);
+  markLogTabState(data.jobs);
+
+  const s = data.system;
+  setHTML(document.getElementById("sysgrid"), `
+    <div class="stat"><i>files pending</i><b>${s.spool_files}</b></div>
+    <div class="stat"><i>size</i><b>${s.spool_mb} MB</b></div>`);
+}
+
+// ---- logs: append-only, offset-based --------------------------------------
+
+const LOG = {job:null, offset:null, following:true, nodes:0, pending:"",
+             style:null};
+const LOG_MAX_NODES = 24000;   // trim the client buffer, never the file
+
+// Standard 16-colour terminal palette, tuned for this dark background so the
+// log reads the same here as it does in the terminal.
+const ANSI_FG = {
+  30:"#5c6370", 31:"#e06c75", 32:"#98c379", 33:"#e5c07b",
+  34:"#61afef", 35:"#c678dd", 36:"#56b6c2", 37:"#c9d1d9",
+  90:"#7f848e", 91:"#ff7b72", 92:"#7ee787", 93:"#f2cc60",
+  94:"#79c0ff", 95:"#d2a8ff", 96:"#76e3ea", 97:"#ffffff",
+};
+const ANSI_BG = {
+  40:"#22272e", 41:"#5c2b2b", 42:"#2b4a32", 43:"#5c4813",
+  44:"#243b53", 45:"#432b5c", 46:"#204f55", 47:"#3d444d",
+  100:"#2d333b", 101:"#7a3b38", 102:"#3c6b45", 103:"#7a6320",
+  104:"#31527a", 105:"#5b3b7a", 106:"#2b6b72", 107:"#5c636d",
+};
+
+function newStyle(){
+  return {fg:null, bg:null, bold:false, dim:false, italic:false, underline:false};
+}
+
+/** Apply one SGR parameter list to the running style, as a terminal would. */
+function applySGR(style, params){
+  const codes = params === "" ? [0] : params.split(";").map(n => parseInt(n, 10) || 0);
+  for (let i = 0; i < codes.length; i++){
+    const c = codes[i];
+    if (c === 0){ Object.assign(style, newStyle()); }
+    else if (c === 1) style.bold = true;
+    else if (c === 2) style.dim = true;
+    else if (c === 3) style.italic = true;
+    else if (c === 4) style.underline = true;
+    else if (c === 22){ style.bold = false; style.dim = false; }
+    else if (c === 23) style.italic = false;
+    else if (c === 24) style.underline = false;
+    else if (c === 39) style.fg = null;
+    else if (c === 49) style.bg = null;
+    else if (ANSI_FG[c] !== undefined) style.fg = ANSI_FG[c];
+    else if (ANSI_BG[c] !== undefined) style.bg = ANSI_BG[c];
+    else if (c === 38 || c === 48){
+      // 256-colour and truecolour forms; consume their arguments.
+      const target = c === 38 ? "fg" : "bg";
+      if (codes[i+1] === 5){ style[target] = xterm256(codes[i+2]); i += 2; }
+      else if (codes[i+1] === 2){
+        style[target] = `rgb(${codes[i+2]|0},${codes[i+3]|0},${codes[i+4]|0})`;
+        i += 4;
+      }
+    }
+  }
+}
+
+/** xterm 256-colour cube to CSS, for logs that use the extended palette. */
+function xterm256(n){
+  n = n | 0;
+  if (n < 16) return ANSI_FG[n < 8 ? 30 + n : 90 + (n - 8)] || "#c9d1d9";
+  if (n < 232){
+    const v = n - 16, lv = [0,95,135,175,215,255];
+    return `rgb(${lv[Math.floor(v/36)%6]},${lv[Math.floor(v/6)%6]},${lv[v%6]})`;
+  }
+  const g = 8 + (n - 232) * 10;
+  return `rgb(${g},${g},${g})`;
+}
+
+function styledSpan(text, style){
+  if (!style || (!style.fg && !style.bg && !style.bold && !style.dim
+                 && !style.italic && !style.underline))
+    return document.createTextNode(text);
+  const el = document.createElement("span");
+  el.textContent = text;
+  let cls = "";
+  if (style.bold) cls += "b ";
+  if (style.dim) cls += "d ";
+  if (style.italic) cls += "i ";
+  if (style.underline) cls += "u ";
+  if (cls) el.className = cls.trim();
+  if (style.fg) el.style.color = style.fg;
+  if (style.bg) el.style.backgroundColor = style.bg;
+  return el;
+}
+
+// Matches any CSI sequence. Only 'm' (SGR) changes colour; the rest (cursor
+// moves, line erases) are dropped rather than printed as garbage.
+const CSI = /\x1b\[([0-9;]*)([A-Za-z])/g;
+
+/**
+ * Append ANSI-coded text to the pane, carrying colour state across chunks.
+ * Incremental polling can split an escape sequence in half, so a trailing
+ * partial sequence is buffered rather than rendered as literal text.
+ */
+function appendAnsi(pane, chunk){
+  let text = LOG.pending + chunk;
+  LOG.pending = "";
+  // Hold back a trailing partial escape (ESC, ESC[, ESC[3, ...) for next time.
+  const tail = text.search(/\x1b\[?[0-9;]*$/);
+  if (tail !== -1 && tail >= text.length - 12){
+    LOG.pending = text.slice(tail);
+    text = text.slice(0, tail);
+  }
+  if (!text) return;
+  text = text.replace(/\r(?!\n)/g, "");   // bare CR would overwrite in a terminal
+
+  if (!LOG.style) LOG.style = newStyle();
+  const frag = document.createDocumentFragment();
+  let last = 0, added = 0;
+  CSI.lastIndex = 0;
+  let m;
+  while ((m = CSI.exec(text)) !== null){
+    if (m.index > last){
+      frag.appendChild(styledSpan(text.slice(last, m.index), LOG.style));
+      added++;
+    }
+    if (m[2] === "m") applySGR(LOG.style, m[1]);
+    last = CSI.lastIndex;
+  }
+  if (last < text.length){
+    frag.appendChild(styledSpan(text.slice(last), LOG.style));
+    added++;
+  }
+  pane.appendChild(frag);
+  LOG.nodes += added;
+  // Trim from the front so a long session cannot grow the DOM without bound.
+  while (LOG.nodes > LOG_MAX_NODES && pane.firstChild){
+    pane.removeChild(pane.firstChild);
+    LOG.nodes--;
+  }
+}
+
+function buildLogTabs(jobs){
+  const host = document.getElementById("logtabs");
+  const sig = jobs.map(j => j.id).join(",");
+  if (host.dataset.sig === sig) return;
+  host.dataset.sig = sig;
+  host.innerHTML = "";
+  for (const job of jobs){
+    const b = document.createElement("button");
+    b.className = "tab";
+    b.innerHTML = `<i class="dot"></i><span></span>`;
+    b.querySelector("span").textContent = job.name;
+    b.onclick = () => selectLog(job.id);
+    b.dataset.job = job.id;
+    host.appendChild(b);
+  }
+  if (!LOG.job && jobs.length) selectLog(jobs[0].id);
+  else markActiveTab();
+}
+function markActiveTab(){
+  for (const b of document.querySelectorAll("#logtabs .tab"))
+    b.classList.toggle("on", b.dataset.job === LOG.job);
+}
+
+// The tab strip doubles as a state read-out, so picking a log does not mean
+// first working out which job is even running.
+function markLogTabState(jobs){
+  for (const job of jobs){
+    const dot = document.querySelector(`#logtabs .tab[data-job="${job.id}"] .dot`);
+    if (dot && dot.className !== "dot " + job.state) dot.className = "dot " + job.state;
+  }
+}
+
+function selectLog(jobId){
+  LOG.job = jobId; LOG.offset = null;
+  LOG.nodes = 0; LOG.pending = ""; LOG.style = null;
+  LOG.following = true;
+  document.getElementById("follow").checked = true;
+  const pane = document.getElementById("logpane");
+  pane.textContent = "loading…";
+  markActiveTab();
+  pollLog(true);
+}
+function jumpBottom(){
+  const pane = document.getElementById("logpane");
+  pane.scrollTop = pane.scrollHeight;
+  LOG.following = true;
+  document.getElementById("follow").checked = true;
+}
+function onFollowToggle(){
+  LOG.following = document.getElementById("follow").checked;
+  if (LOG.following) jumpBottom();
+}
+
+// Long argv lines and tracebacks are unreadable wrapped on a phone and
+// unreadable unwrapped on a laptop, so it is a per-viewer choice, remembered.
+function onWrapToggle(){
+  const on = document.getElementById("wrap").checked;
+  applyWrap(on);
+  try { localStorage.setItem("opsWrap", on ? "1" : "0"); } catch {}
+}
+function applyWrap(on){
+  const pane = document.getElementById("logpane");
+  pane.style.whiteSpace = on ? "pre-wrap" : "pre";
+  pane.style.wordBreak = on ? "break-word" : "normal";
+}
+
+// Scrolling up parks the view; scrolling back to the bottom resumes following.
+document.getElementById("logpane").addEventListener("scroll", () => {
+  const pane = document.getElementById("logpane");
+  const atBottom = pane.scrollHeight - pane.scrollTop - pane.clientHeight < 30;
+  if (LOG.following !== atBottom){
+    LOG.following = atBottom;
+    document.getElementById("follow").checked = atBottom;
+  }
+});
+
+async function pollLog(initial){
+  if (!LOG.job) return;
+  const pane = document.getElementById("logpane");
+  const job = LOG.job;
+  const q = new URLSearchParams();
+  if (LOG.offset != null && !initial) q.set("offset", String(LOG.offset));
+  let d;
+  try { d = await api(`/api/job/${job}/logs?` + q.toString()); }
+  catch(e){ if (initial) pane.textContent = "cannot load log: " + e.message; return; }
+  if (LOG.job !== job) return;   // switched jobs while the request was in flight
+
+  if (d.reset){
+    // Full replacement: drop everything, including any half-parsed escape.
+    pane.textContent = "";
+    LOG.nodes = 0; LOG.pending = ""; LOG.style = null;
+    if (d.text) appendAnsi(pane, d.text);
+    else pane.textContent = "(no output yet)";
+  } else if (d.text){
+    // Append only: existing content is untouched, so the browser does not
+    // repaint it and the scroll position survives.
+    appendAnsi(pane, d.text);
+  }
+  LOG.offset = d.next_offset;
+  if (LOG.following) pane.scrollTop = pane.scrollHeight;
+}
+
+// ---- actions ---------------------------------------------------------------
+
+// Connection state. A panel that quietly stopped polling still shows "running"
+// in green, which is the most dangerous thing this page could do -- so a lost
+// connection is stated plainly, once it is real, and retried with a backoff
+// instead of hammering a host that may be busy. There is no always-on "live"
+// indicator: a healthy connection is the normal case and does not need saying.
+const CONN = {fails:0, nextTry:0, since:0};
+
+async function refresh(force){
+  if (!force && CONN.fails && Date.now() < CONN.nextTry) return;
+  try { render(await api("/api/status")); setConn(true); }
+  catch(e){ setConn(false, e.message); }
+}
+
+function setConn(ok, why){
+  const bar = document.getElementById("connbar");
+  if (ok){
+    CONN.fails = 0; CONN.since = 0;
+    setHTML(bar, "");
+    return;
+  }
+  CONN.fails++;
+  if (!CONN.since) CONN.since = Date.now();
+  // 2s, 4s, 8s, then every 15s. Backing off matters: the robot host is the
+  // thing we are asking about, and it is usually busy when it stops answering.
+  CONN.nextTry = Date.now() + Math.min(15000, 1000 * 2 ** CONN.fails);
+  // One failed poll is a hiccup; several is worth interrupting for.
+  setHTML(bar, CONN.fails < 3 ? "" :
+    `<div class="note bad"><b>No connection to the panel.</b> Everything below
+     is the last state seen ${esc(fmtAgo(CONN.since/1000))}, not the state now.
+     Retrying. ${esc(why || "")}</div>`);
+}
+
+async function act(id, action){
+  if (busy) return;
+  const job = LAST.jobs.find(j => j.id === id);
+  if (action === "stop"){
+    const extra = job.auto_force ? "" :
+      "\n\nIt will NOT be force-killed automatically. That stays your call.";
+    const ok = await ask({
+      title: `Stop ${job.name}`,
+      body: `Sends SIGINT, the same signal as Ctrl+C, and waits up to `
+            + `${Math.round(job.grace_sec)}s for a clean shutdown.${extra}`,
+      confirmLabel: "Stop",
+    });
+    if (!ok) return;
+  }
+  busy = true;
+  try{
+    const res = await api(`/api/job/${id}/${action}`, {method:"POST"});
+    if (action === "start"){
+      const cleaned = (res.cleaned || []).length;
+      toast(`${job.name} starting`
+            + (cleaned ? ` · cleared ${cleaned} leftover process(es) first` : ""),
+            "ok");
+      selectLog(id);
+    } else {
+      toast(`Stopping ${job.name} · SIGINT sent`, "ok");
+    }
+  }catch(e){ toast(e.message, "bad"); }
+  busy = false;
+  refresh(true);
+}
+
+async function adopt(id){
+  try{ await api(`/api/job/${id}/adopt`, {method:"POST"}); toast("Adopted", "ok"); }
+  catch(e){ toast(e.message, "bad"); }
+  refresh(true);
+}
+
+async function cancelStop(id){
+  const job = LAST.jobs.find(j => j.id === id);
+  const ok = await ask({
+    title: `Stop waiting on ${job.name}`,
+    body: `Nothing is signalled. The shutdown request was already delivered and `
+          + `the job may still be finishing.\n\nThis only releases the panel, so `
+          + `you can start it again once it exits.`,
+    confirmLabel: "Stop waiting",
+  });
+  if (!ok) return;
+  try{ await api(`/api/job/${id}/cancel-stop`, {method:"POST"});
+       toast("Released. Start is available once it exits.", "ok"); }
+  catch(e){ toast(e.message, "bad"); }
+  refresh(true);
+}
+
+async function forceStop(id){
+  const job = LAST.jobs.find(j => j.id === id);
+  const ok = await ask({
+    title: `Force stop ${job.name}`,
+    body: (job.force_warning || "This SIGKILLs the process group."),
+    confirmLabel: "Force stop",
+    danger: true,
+  });
+  if (!ok) return;
+  try{ await api(`/api/job/${id}/stop?force=1`, {method:"POST"});
+       toast("SIGKILL sent", "bad"); }
+  catch(e){ toast(e.message, "bad"); }
+  refresh(true);
+}
+
+async function saveCmd(id){
+  const refs = cards.get(id);
+  const env = {};
+  for (const line of refs.env.value.split("\n")){
+    const t = line.trim();
+    if (!t || t.startsWith("#")) continue;
+    const i = t.indexOf("=");
+    if (i < 1){ toast(`Bad env line: ${t}`, "bad"); return; }
+    env[t.slice(0,i).trim()] = t.slice(i+1).trim();
+  }
+  try{
+    await api(`/api/job/${id}/command`,
+      {method:"POST", body: JSON.stringify({command: refs.cmdEdit.value.trim(), env})});
+    refs.msg.textContent = "saved";
+    refs.dirty = false;
+    toast("Command saved. The next Start uses it.", "ok");
+    refresh(true);
+    setTimeout(() => { refs.msg.textContent = ""; }, 2500);
+  }catch(e){ refs.msg.textContent = "failed: " + e.message; }
+}
+
+// ---- CAN adapters ----------------------------------------------------------
+
+let CAN = null;              // last /api/can payload
+const CAN_PICK = new Map();  // usb bus -> chosen role
+// True only once the operator has actually changed a dropdown. CAN_PICK itself
+// cannot be used for this: it is pre-filled with every adapter's current role
+// on first render, so testing it for emptiness froze the card permanently --
+// the lock state stopped tracking whether teleop was running, and Apply stayed
+// clickable after the arms came up. It now only suppresses the row REDRAW;
+// the lock keeps refreshing through syncCanLock.
+let CAN_DIRTY = false;
+
+async function loadCan(userAsked){
+  const out = document.getElementById("canout");
+  const msg = document.getElementById("canmsg");
+  if (userAsked) msg.textContent = "scanning…";
+  try{ CAN = await api("/api/can"); }
+  catch(e){
+    if (userAsked) msg.textContent = "";
+    out.innerHTML = `<div class="note bad">Could not scan: ${esc(e.message)}</div>`;
+    return;
+  }
+  // Rescan is the operator saying "show me what is actually plugged in", so it
+  // drops pending picks and reads the hardware -- which is what made a separate
+  // discard button unnecessary. The 5s poll is NOT that: it must never stomp an
+  // edit in progress, so it keeps the picks and only refreshes the lock.
+  if (!CAN_DIRTY || userAsked){
+    CAN_DIRTY = false;
+    CAN_PICK.clear();
+  }
+  renderLock();
+  // Mid-edit, refresh the lock but leave the rows (and any open dropdown) alone.
+  if (CAN_DIRTY) syncCanLock(); else renderCan();
+  renderActions();
+  if (userAsked){
+    const n = CAN.adapters.filter(a => a.assignable).length;
+    msg.textContent = `scanned ${new Date().toLocaleTimeString()} · `
+      + `${n} USB adapter${n === 1 ? "" : "s"}`
+      + ((CAN.blocked_by || []).length ? " · locked" : "");
+  }
+}
+
+// The cause of every lock on this tab, said once. Both cards key off the same
+// list of jobs holding the CAN socket, so repeating it per card was noise --
+// and giving one card a warning block and the other nothing made them look like
+// different states when they are the same one.
+function renderLock(){
+  const blockers = (CAN && CAN.blocked_by) || [];
+  setHTML(document.getElementById("canlock"), blockers.length === 0 ? "" :
+    `<div class="note warn"><b>Locked while ${esc(blockers.join(", "))} is
+     running.</b> Both reassigning an adapter and talking to an arm go over CAN,
+     and the running stack owns that socket. Stop it first, then come back.</div>`);
+}
+
+function setLockBadge(id, locked){
+  const el = document.getElementById(id);
+  if (!el) return;
+  setText(el, locked ? "locked" : "idle");
+  const cls = "badge " + (locked ? "b-stopping" : "b-stopped");
+  if (el.className !== cls) el.className = cls;
+}
+
+function renderCan(){
+  const out = document.getElementById("canout");
+  const apply = document.getElementById("canapply");
+  const roles = Object.keys(CAN.roles || {});
+  const blocked = (CAN.blocked_by || []).length > 0;
+
+
+  let html = "";
+  if (!CAN.helper_installed)
+    html += `<div class="note bad">The privileged CAN helper is not installed on
+      this host, so assignments cannot be applied. Run
+      <code>ops/install.sh</code> on the Jetson.</div>`;
+  if (!CAN.adapters.some(a => a.assignable))
+    html += `<div class="note info">No USB CAN adapters found. Check they are
+      plugged in and that the <code>gs_usb</code> driver is loaded.</div>`;
+
+  const usb = CAN.adapters.filter(a => a.assignable);
+  const onboard = CAN.adapters.filter(a => !a.assignable);
+
+  for (const a of usb){
+    // Default the dropdown to whatever role this adapter already fills, so
+    // "apply" with no edits is a no-op rather than a surprise reshuffle.
+    if (!CAN_PICK.has(a.bus)) CAN_PICK.set(a.bus, a.role || "");
+    const picked = CAN_PICK.get(a.bus);
+    const opts = [`<option value="">unassigned</option>`].concat(
+      roles.map(r => `<option value="${esc(r)}"${picked === r ? " selected" : ""}>`
+                     + `${esc(r)} (${esc(CAN.roles[r])})</option>`)).join("");
+    const rate = a.bitrate ? `${(a.bitrate/1000)|0} kbit/s` : "not configured";
+    const moved = picked && picked !== a.role;
+    html += `<div class="can-row">
+      <div class="can-id">
+        <b>USB port ${esc(a.usb_port)}</b>
+        <span class="pill ${a.state === "UP" ? "up" : "down"}">${esc(a.state)}</span>
+        ${a.role ? `<span class="pill">now: ${esc(a.role)}</span>` : ""}
+        ${moved ? `<span class="pill up">→ ${esc(picked)}</span>` : ""}
+        <div class="can-meta">${esc(a.iface)} · ${rate}`
+        + (a.product ? ` · ${esc(a.product)}` : "")
+        + (a.serial ? ` · sn ${esc(a.serial)}` : "")
+        + `</div>
+      </div>
+      <select ${blocked ? "disabled" : ""} onchange="canPick('${esc(a.bus)}', this.value)">
+        ${opts}
+      </select>
+    </div>`;
+  }
+
+  // Soldered-down controllers are shown so their presence is not a mystery,
+  // but they are not adapters you can move between arms.
+  if (onboard.length)
+    html += `<p class="muted" style="margin:10px 0 0">Also present, not
+      assignable: ` + onboard.map(a =>
+        `<code>${esc(a.iface)}</code> (on-board ${esc(a.bus_kind)}, ${esc(a.bus)})`
+      ).join(", ") + `.</p>`;
+
+  // Same role twice is the one mistake the UI can catch before root sees it.
+  const chosen = [...CAN_PICK.values()].filter(Boolean);
+  const dupes = chosen.filter((r, i) => chosen.indexOf(r) !== i);
+  if (dupes.length)
+    html += `<div class="note bad">Two adapters are both set to
+      <b>${esc(dupes[0])}</b>. Each role can only be on one adapter.</div>`;
+
+  out.innerHTML = html;
+  syncCanLock();
+}
+
+// Lock state without redrawing the rows. Redrawing closes a <select> the
+// operator has open, which is why the poll used to skip the whole card while
+// there were unsaved picks -- and that meant the card could not notice teleop
+// starting, leaving a stale "idle" badge over a bus that was now in use.
+function syncCanLock(){
+  const blocked = ((CAN && CAN.blocked_by) || []).length > 0;
+  setLockBadge("canbadge", blocked);
+  for (const sel of document.querySelectorAll("#canout select"))
+    sel.disabled = blocked;
+  const chosen = [...CAN_PICK.values()].filter(Boolean);
+  const dupes = chosen.filter((r, i) => chosen.indexOf(r) !== i);
+  const apply = document.getElementById("canapply");
+  if (apply) apply.disabled = blocked || !chosen.length || dupes.length > 0
+                              || !CAN.helper_installed;
+}
+
+function renderActions(){
+  const out = document.getElementById("actionout");
+  if (!out) return;
+  const actions = (CAN && CAN.actions) || [];
+  setLockBadge("actionbadge",
+               actions.some(a => (a.blocked_by || []).length > 0));
+  if (!actions.length){
+    setHTML(out, `<p class="muted">No actions configured.</p>`);
+    return;
+  }
+  let html = "";
+  for (const a of actions){
+    const blocked = (a.blocked_by || []).length > 0;
+    const last = a.last;
+    html += `<div class="can-row">
+      <div class="can-id">
+        <b>${esc(a.name)}</b>
+        ${a.running ? `<span class="pill">running</span>` : ""}
+        ${last ? `<span class="pill ${last.ok ? "up" : "down"}">`
+                 + `${last.ok ? "ok" : "failed"}</span>` : ""}
+        <div class="can-meta prose">${esc(a.blurb)}</div>
+      </div>
+      <button class="${blocked ? "" : "primary"}" ${blocked || a.running ? "disabled" : ""}
+              title="${blocked ? esc(`Locked while ${a.blocked_by.join(", ")} is `
+                                     + `running: this talks to the arm over CAN, `
+                                     + `and the running stack owns that socket.`) : ""}"
+              onclick="runAction('${esc(a.id)}')">
+        ${a.running ? "running…" : blocked ? "locked" : "Run"}</button>
+    </div>`;
+  }
+  html += `<pre class="log" id="actionlog" style="height:auto;max-height:280px;
+           margin-top:12px" hidden></pre>`;
+  setHTML(out, html);
+  // setHTML skips identical markup, so restore any output already on screen.
+  const log = document.getElementById("actionlog");
+  if (log && ACTION_LOG){ log.hidden = false; log.textContent = ACTION_LOG; }
+}
+
+let ACTION_LOG = "";
+
+async function runAction(id){
+  const a = (CAN.actions || []).find(x => x.id === id);
+  if (!a) return;
+  if (a.confirm && !await ask({title: a.name, body: a.confirm, confirmLabel: "Run"}))
+    return;
+  ACTION_LOG = `$ ${a.command}\n\nrunning…`;
+  renderActions();
+  try{
+    const d = await api(`/api/action/${encodeURIComponent(id)}`, {method:"POST"});
+    const verdict = d.exit_code === null ? "TIMED OUT"
+                  : d.ok ? `OK (${d.ran_for}s)`
+                         : `FAILED (exit ${d.exit_code})`;
+    ACTION_LOG = `$ ${a.command}\n\n${d.output || "(no output)"}\n\n=== ${verdict} ===`;
+  }catch(e){
+    ACTION_LOG = `$ ${a.command}\n\n${e.message}`;
+  }
+  await loadCan();
+  const log = document.getElementById("actionlog");
+  if (log){ log.hidden = false; log.textContent = ACTION_LOG; log.scrollTop = log.scrollHeight; }
+}
+
+function canPick(bus, role){
+  CAN_PICK.set(bus, role);
+  CAN_DIRTY = true;
+  renderCan();
+}
+
+async function canApply(){
+  // The disabled attribute is only as fresh as the last poll, and an arm can
+  // come up between two polls. The server enforces this as well; this just
+  // fails clearly instead of showing a raw error.
+  if ((CAN.blocked_by || []).length){
+    toast(`Cannot reassign while ${CAN.blocked_by.join(", ")} is running. Stop `
+          + `it first: reconfiguring takes the interface down, which would cut `
+          + `the control loop's CAN socket mid-command.`, "bad");
+    loadCan();
+    return;
+  }
+  const assign = {};
+  for (const [bus, role] of CAN_PICK)
+    if (role) assign[bus] = CAN.roles[role];
+  const lines = Object.entries(assign)
+    .map(([bus, name]) => `  ${name}  <-  USB ${bus}`).join("\n");
+  const ok = await ask({
+    title: "Apply CAN assignment",
+    body: `${lines}\n\nEach interface is taken down, renamed and brought back up `
+          + `at ${((CAN.bitrate||0)/1000)|0} kbit/s. Nothing may be driving the `
+          + `arms.`,
+    confirmLabel: "Apply",
+    danger: true,
+  });
+  if (!ok) return;
+
+  const msg = document.getElementById("canmsg");
+  const log = document.getElementById("canlog");
+  msg.textContent = "applying…";
+  try{
+    const d = await api("/api/can/apply", {
+      method: "POST", body: JSON.stringify({assign, bitrate: CAN.bitrate}),
+    });
+    msg.textContent = "applied";
+    log.hidden = false;
+    log.textContent = d.log || "";
+    CAN_DIRTY = false;
+    CAN_PICK.clear();
+    loadCan();
+  }catch(e){
+    msg.textContent = "";
+    log.hidden = false;
+    log.textContent = e.message;
+  }
+}
+
+async function sweep(kill){
+  const out = document.getElementById("sweepout");
+  if (kill && !await ask({
+    title: "Kill every listed process",
+    body: "High-risk entries are orphaned workers. If one belongs to a live arm "
+          + "session, killing it can leave the arm latched in E-stop.",
+    confirmLabel: "Kill listed",
+    danger: true,
+  })) return;
+  out.innerHTML = `<span class="muted">scanning…</span>`;
+  try{
+    const d = await api("/api/sweep", kill ? {method:"POST"} : undefined);
+    document.getElementById("sweepkill").disabled = d.found.length === 0;
+    if (!d.found.length){
+      out.innerHTML = `<div class="note ok">Nothing stray. Everything running is
+        accounted for by a job above.</div>`;
+      return;
+    }
+    out.innerHTML = `<table><tr><th>pid</th><th>what</th><th>age</th><th>mem</th>
+      <th>command</th>${kill ? "<th>killed</th>" : ""}</tr>` +
+      d.found.map(f => `<tr><td>${f.pid}</td>
+        <td class="risk-${f.risk}">${esc(f.kind)}</td>
+        <td>${fmtDur(f.age_sec)}</td><td>${f.rss_mb} MB</td>
+        <td class="cmd-cell">${esc(f.cmd)}</td>
+        ${kill ? `<td>${f.killed ? "yes" : "no"}</td>` : ""}</tr>`).join("") + `</table>`;
+  }catch(e){ out.innerHTML = `<div class="note bad">${esc(e.message)}</div>`; }
+}
+
+async function clearSpool(){
+  const ok = await ask({
+    title: "Delete the video spool",
+    body: "Chunks in here are footage that has NOT reached GCS yet.\n\nOnly do "
+          + "this if you are sure nothing is pending.",
+    confirmLabel: "Delete",
+    danger: true,
+  });
+  if (!ok) return;
+  try{
+    const d = await api("/api/spool/clear", {method:"POST"});
+    toast(d.note || `Removed ${d.removed} file(s), freed ${d.freed_mb} MB.`, "ok");
+  }catch(e){ toast(e.message, "bad"); }
+  refresh(true);
+}
+
+async function loadRaw(){
+  const ta = document.getElementById("rawcfg");
+  try{ ta.value = (await api("/api/config")).text; }
+  catch(e){ ta.value = "cannot load config: " + e.message; }
+}
+async function saveRaw(){
+  const msg = document.getElementById("rawmsg");
+  try{
+    await api("/api/config", {method:"POST",
+      body: JSON.stringify({text: document.getElementById("rawcfg").value})});
+    msg.textContent = "saved";
+    refresh();
+  }catch(e){ msg.textContent = "failed: " + e.message; }
+}
+
+// ---- full machine config ----------------------------------------------------
+// No polling: drafts survive tab switches and never get overwritten mid-edit.
+let ARMCFG = null;
+let armLoading = false;
+let armSaving = false;
+
+function armDirty(){
+  return ARMCFG && document.getElementById("armtext").value !== ARMCFG.text;
+}
+function armBadge(){
+  const toggle = document.getElementById("agilexteleop");
+  if (toggle) {
+    toggle.disabled = !ARMCFG || armLoading || armSaving;
+    toggle.checked = /^USE_AGILEX_TELEOP\s*=\s*True\b/m.test(document.getElementById("armtext").value);
+  }
+  const b = document.getElementById("armbadge");
+  if (!b || !ARMCFG) return;
+  b.textContent = armDirty() ? "unsaved" : (ARMCFG.validation_error ? "invalid" : "saved");
+  b.className = "badge " + (armDirty() || ARMCFG.validation_error ? "b-running" : "b-stopped");
+}
+
+function setAgilexTeleop(enabled){
+  const editor = document.getElementById("armtext");
+  const assignment = "USE_AGILEX_TELEOP = " + (enabled ? "True" : "False");
+  const pattern = /^USE_AGILEX_TELEOP\s*=.*$/gm;
+  editor.value = pattern.test(editor.value)
+    ? editor.value.replace(pattern, assignment)
+    : editor.value + "\n" + assignment + "\n";
+  armBadge();
+}
+
+async function loadArmConfig(userAsked){
+  if (armLoading || armSaving) return;
+  if (armDirty()){
+    if (!userAsked) return;
+    const discard = await ask({title:"Discard unsaved changes?",
+      body:"Reload configs.py from this machine and discard your draft.", confirmLabel:"Reload"});
+    if (!discard) return;
+  }
+  armLoading = true;
+  const msg = document.getElementById("armtextmsg");
+  const editor = document.getElementById("armtext");
+  editor.disabled = true;
+  document.getElementById("armtextsave").disabled = true;
+  msg.textContent = "loading...";
+  try {
+    const d = await api("/api/arm-config");
+    ARMCFG = d;
+    editor.value = d.text;
+    document.getElementById("armpath").textContent = d.path;
+    document.getElementById("armnote").textContent = "applies on job restart";
+    msg.textContent = d.validation_error
+      ? "File needs fixing: " + d.validation_error
+      : (userAsked ? "reloaded" : "");
+  } catch(e){
+    msg.textContent = "failed: " + e.message;
+    toast("Could not load configs.py: " + e.message, "bad");
+  } finally {
+    armLoading = false;
+    editor.disabled = !ARMCFG;
+    document.getElementById("armtextsave").disabled = !ARMCFG;
+    armBadge();
+  }
+}
+
+async function saveArmText(){
+  if (!ARMCFG || armLoading || armSaving) return;
+  const msg = document.getElementById("armtextmsg");
+  const editor = document.getElementById("armtext");
+  const text = editor.value;
+  if (!armDirty()) { msg.textContent = "no changes"; return; }
+  armSaving = true;
+  editor.disabled = true;
+  document.getElementById("armtextsave").disabled = true;
+  document.getElementById("armreload").disabled = true;
+  msg.textContent = "validating and saving...";
+  try {
+    const d = await api("/api/arm-config", {method:"POST",
+      body: JSON.stringify({text, revision: ARMCFG.revision})});
+    ARMCFG = {...ARMCFG, text, revision:d.revision, validation_error:null};
+    msg.textContent = "saved on this machine — restart affected jobs to apply";
+    toast("configs.py saved. Restart affected jobs to apply.", "ok");
+  } catch(e){
+    msg.textContent = "not saved: " + e.message;
+    toast("configs.py not saved: " + e.message, "bad");
+  } finally {
+    armSaving = false;
+    editor.disabled = false;
+    document.getElementById("armtextsave").disabled = false;
+    document.getElementById("armreload").disabled = false;
+    armBadge();
+  }
+}
+
+// Insert spaces for Python indentation; Shift+Tab still moves focus backward.
+document.getElementById("armtext").addEventListener("keydown", event => {
+  if (event.key === "Tab" && !event.shiftKey){
+    event.preventDefault();
+    const editor = event.target;
+    editor.setRangeText("    ", editor.selectionStart, editor.selectionEnd, "end");
+    armBadge();
+  }
+});
+window.addEventListener("beforeunload", event => {
+  if (armDirty()) { event.preventDefault(); event.returnValue = ""; }
+});
+
+// ---- boot ------------------------------------------------------------------
+try { applyWrap(localStorage.getItem("opsWrap") !== "0");
+      document.getElementById("wrap").checked =
+        localStorage.getItem("opsWrap") !== "0"; } catch {}
+refresh(true);
+loadRaw();
+showTab(activeTab);
+
+// Poll only what is on screen, and only while the screen is on. A phone in a
+// pocket with this page open used to keep three timers hitting the robot host
+// forever; the panel must never be a background load on the machine flying the
+// arms. Coming back wakes everything immediately, so nothing looks stale.
+function awake(){ return document.visibilityState !== "hidden"; }
+
+// CAN shells out to ip(8) and reads sysfs, so it is the one worth not running
+// in the background. It does keep polling while the operator has unsaved picks:
+// loadCan preserves the picks, and skipping the poll instead meant the card
+// could not see an arm job start under it.
+setInterval(() => {
+  if (awake() && activeTab === "can") loadCan();
+}, 5000);
+setInterval(() => { if (awake()) refresh(); }, 2000);
+setInterval(() => { if (awake() && activeTab === "jobs") pollLog(); }, 1000);
+
+document.addEventListener("visibilitychange", () => {
+  if (!awake()) return;
+  refresh(true);
+  if (activeTab === "jobs") pollLog();
+  if (activeTab === "can") loadCan();
+});
+</script>
+</body>
+</html>

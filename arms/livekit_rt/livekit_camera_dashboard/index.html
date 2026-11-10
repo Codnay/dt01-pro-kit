@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Piper — LiveKit Camera Feed</title>
+  <!-- Pinned deliberately: an unpinned CDN tag is a silent upgrade to a viewer
+       an operator relies on. Bump it on purpose, not on someone else's release. -->
+  <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.22.3/dist/livekit-client.umd.min.js"></script>
+  <style>
+    :root {
+      --bg: #0a0a0a; --panel: #141414; --panel-2: #1c1c1d; --border: #2e2f31;
+      --text: #f3f4f6; --muted: #8b8d92; --accent: #f3f4f6; --accent-ink: #0b0b0c;
+      --ok: #36c46f; --warn: #e0a91b; --error: #e0524b; --num: #4fd1c5;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      background: var(--bg); color: var(--text); font-size: 14px;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      display: flex; flex-direction: column;
+    }
+    .bar {
+      display: flex; align-items: center; gap: 8px; padding: 10px 16px;
+      background: linear-gradient(180deg, var(--panel) 0%, #11141a 100%);
+      border-bottom: 1px solid var(--border); min-height: 54px; flex-wrap: nowrap;
+    }
+    .bar input {
+      background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
+      border-radius: 6px; padding: 7px 9px; outline: none; min-width: 220px;
+    }
+    .bar input:focus { border-color: var(--accent); }
+    .bar button {
+      border: 0; border-radius: 6px; padding: 8px 16px; cursor: pointer;
+      font-weight: 600; color: #fff; font: inherit; font-weight: 600;
+    }
+    .bar button.primary { background: var(--accent); color: var(--accent-ink); }
+    .bar button.danger { background: var(--error); }
+    .bar button.ghost {
+      background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
+    }
+    .bar button:disabled { opacity: 0.45; cursor: default; }
+    .bar-status { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+    .state { display: inline-flex; align-items: center; gap: 6px; color: var(--muted);
+             white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .state .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+    .state.ok .dot { background: var(--ok); }
+    .state.warn .dot { background: var(--warn); }
+    .state.err .dot { background: var(--error); }
+    .chip {
+      display: inline-flex; align-items: baseline; gap: 7px; padding: 6px 11px;
+      border-radius: 6px; background: var(--panel-2); border: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    .chip span { font-size: 11px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); }
+    .chip b { font-weight: 600; }
+
+    /* Body: stage on the left, info panel pinned to the right. */
+    .body { display: flex; flex: 1; min-height: 0; }
+    .stage { flex: 1; min-width: 0; overflow: auto; padding: 14px; }
+    #grid {
+      display: grid; gap: 14px;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    }
+    .tile {
+      background: #000; border: 1px solid var(--border); border-radius: 10px;
+      overflow: hidden; display: flex; flex-direction: column;
+    }
+    .tile-head {
+      height: 30px; display: flex; align-items: center; gap: 7px; padding: 0 10px;
+      background: linear-gradient(180deg, rgba(27,31,39,.96), rgba(20,23,29,.92));
+      border-bottom: 1px solid var(--border); font-weight: 600; text-transform: capitalize;
+    }
+    .live-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+    /* contain, never cover: the operator must see the WHOLE frame. */
+    .tile video { width: 100%; height: auto; display: block; object-fit: contain; background: #000; }
+    .empty { color: var(--muted); text-align: center; padding: 60px 20px; line-height: 1.6; }
+
+    .sidebar {
+      width: 360px; flex-shrink: 0; border-left: 1px solid var(--border);
+      background: linear-gradient(180deg, var(--panel) 0%, var(--bg) 100%);
+      overflow: auto; display: flex; flex-direction: column;
+    }
+    .panel { padding: 12px 14px; border-bottom: 1px solid var(--border); }
+    .panel h3 {
+      margin: 0 0 10px; font-size: 13px; text-transform: uppercase;
+      letter-spacing: .6px; color: var(--muted);
+    }
+    .row { display: flex; justify-content: space-between; padding: 4px 0;
+           border-bottom: 1px dashed rgba(255,255,255,.05); }
+    .row span { color: var(--muted); }
+    .row b { font-variant-numeric: tabular-nums; color: var(--num); }
+    .row b.ok { color: var(--ok); }
+    .row b.warn { color: var(--warn); }
+    table { width: 100%; border-collapse: collapse; font-size: 11px; table-layout: fixed; }
+    th { text-align: left; color: var(--muted); font-weight: 500; padding: 4px 3px;
+         border-bottom: 1px solid var(--border); white-space: nowrap; }
+    td { padding: 4px 3px; border-bottom: 1px solid rgba(255,255,255,.04);
+         font-variant-numeric: tabular-nums; color: var(--num); white-space: nowrap; }
+    td.name { text-transform: capitalize; color: var(--text); overflow: hidden; text-overflow: ellipsis; }
+    td.warn { color: var(--warn); }
+    .note { margin: 8px 0 0; font-size: 11px; line-height: 1.45; color: var(--muted); }
+    .rooms button {
+      display: block; width: 100%; text-align: left; margin-bottom: 4px;
+      background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
+      border-radius: 5px; padding: 6px 9px; cursor: pointer; font: inherit; font-size: 12px;
+    }
+    .rooms button:hover { border-color: var(--accent); }
+  </style>
+</head>
+<body>
+  <header class="bar">
+    <input id="room" placeholder="room (e.g. dt01-pro-01-video)" />
+    <button id="join" class="primary">Join</button>
+    <button id="leave" class="danger" disabled>Leave</button>
+    <button id="rooms" class="ghost" title="List rooms currently live on this LiveKit project">⟳ Rooms</button>
+    <div class="bar-status">
+      <span class="chip"><span>room</span><b id="room-chip">—</b></span>
+      <span class="state" id="state"><span class="dot"></span><b id="state-text">DISCONNECTED</b></span>
+    </div>
+  </header>
+
+  <div class="body">
+    <main class="stage">
+      <div id="grid"></div>
+      <div class="empty" id="empty">
+        Not connected.<br />Pick a room and press <b>Join</b> to watch this robot's cameras.
+      </div>
+    </main>
+
+    <aside class="sidebar">
+      <section class="panel">
+        <h3>Link</h3>
+        <div class="row"><span>State</span><b id="s-state">—</b></div>
+        <div class="row"><span>Room</span><b id="s-room">—</b></div>
+        <div class="row"><span>Publishers</span><b id="s-pubs">—</b></div>
+        <div class="row"><span>Cameras</span><b id="s-cams">—</b></div>
+        <div class="row"><span>Session</span><b id="s-dur">—</b></div>
+        <div class="row"><span>Recv total</span><b id="s-rate">—</b></div>
+        <div class="row"><span>Quality</span><b id="s-quality">—</b></div>
+        <p class="note" id="s-note">
+          Quality is LiveKit's own <code>connectionQuality</code> for the publishing
+          participant (excellent / good / poor / lost), and the bitrate is the SDK's
+          <code>currentBitrate</code>. Neither is derived here.
+        </p>
+      </section>
+
+      <section class="panel">
+        <h3>Cameras</h3>
+        <table>
+          <thead>
+            <tr>
+              <th style="width:22%">cam</th><th>res</th><th>fps</th>
+              <th>Mbps</th><th>lost</th><th>jit</th><th>drop</th>
+            </tr>
+          </thead>
+          <tbody id="cam-rows">
+            <tr><td colspan="7" style="color:var(--muted)">no feeds yet</td></tr>
+          </tbody>
+        </table>
+        <p class="note" id="codec-note">—</p>
+        <p class="note">
+          From LiveKit's <code>getReceiverStats()</code>: <b>lost</b> and <b>drop</b> are
+          cumulative counters since subscribe (not rates), <b>jit</b> is jitter in ms.
+          <b>fps</b> is the browser's own <code>framesPerSecond</code> — the one figure
+          LiveKit does not normalise.
+        </p>
+      </section>
+
+      <section class="panel rooms" id="rooms-panel" hidden>
+        <h3>Live rooms</h3>
+        <div id="rooms-list"></div>
+        <p class="note">
+          Every robot publishes into its own room (<code>&lt;robot_id&gt;-video</code>),
+          so several can stream at once and this list is how you pick one.
+        </p>
+      </section>
+    </aside>
+  </div>
+
+<script>
+const LK = window.LivekitClient
+const $ = (id) => document.getElementById(id)
+
+let room = null
+let joinedAt = 0
+// uid/sid -> { el, video, name }
+const tiles = new Map()
+
+function setState(text, cls) {
+  $('state-text').textContent = text
+  $('state').className = `state ${cls || ''}`
+  $('s-state').textContent = text
+}
+
+function fmtRate(bps) {
+  if (!isFinite(bps) || bps <= 0) return '—'
+  return bps >= 1e6 ? `${(bps / 1e6).toFixed(2)} Mbps` : `${(bps / 1e3).toFixed(0)} kbps`
+}
+function fmtDur(ms) {
+  const s = Math.floor(ms / 1000)
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60)
+  return h > 0 ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}m ${String(s % 60).padStart(2, '0')}s`
+}
+
+// A publication's track name is the camera name the recorder published it under
+// (see livekit_video.LiveKitVideoPublisher), so tiles are labelled with the
+// --camera names rather than an opaque track sid.
+function cameraName(pub) {
+  return pub.trackName || pub.trackSid || 'camera'
+}
+
+function addTile(pub, track) {
+  const el = document.createElement('div')
+  el.className = 'tile'
+  const head = document.createElement('div')
+  head.className = 'tile-head'
+  head.innerHTML = `<span class="live-dot"></span><span>${cameraName(pub)}</span>`
+  const video = track.attach()
+  video.muted = true          // there is no audio in this path at all
+  video.playsInline = true
+  el.appendChild(head)
+  el.appendChild(video)
+  $('grid').appendChild(el)
+  tiles.set(pub.trackSid, { el, track, name: cameraName(pub) })
+  $('empty').hidden = true
+  $('s-cams').textContent = String(tiles.size)
+}
+
+function removeTile(sid) {
+  const t = tiles.get(sid)
+  if (!t) return
+  try { t.track.detach().forEach((e) => e.remove()) } catch {}
+  t.el.remove()
+  tiles.delete(sid)
+  $('s-cams').textContent = String(tiles.size)
+  if (tiles.size === 0) $('empty').hidden = false
+}
+
+async function join(targetRoom) {
+  const q = targetRoom ? `?room=${encodeURIComponent(targetRoom)}` : ''
+  const res = await fetch(`/api/token${q}`, { cache: 'no-store' })
+  const data = await res.json()
+  if (!res.ok || data.error) throw new Error(data.error || `token ${res.status}`)
+
+  setState('CONNECTING', 'warn')
+  room = new LK.Room({
+    // Nothing adaptive: the operator wants the frame the robot sent, and the
+    // publisher does not simulcast, so there are no layers to switch between.
+    adaptiveStream: false,
+    dynacast: false,
+  })
+
+  room
+    .on(LK.RoomEvent.TrackSubscribed, (track, pub) => {
+      if (track.kind === LK.Track.Kind.Video) addTile(pub, track)
+    })
+    .on(LK.RoomEvent.TrackUnsubscribed, (_t, pub) => removeTile(pub.trackSid))
+    .on(LK.RoomEvent.Disconnected, () => teardown('DISCONNECTED', ''))
+    .on(LK.RoomEvent.Reconnecting, () => setState('RECONNECTING', 'warn'))
+    .on(LK.RoomEvent.Reconnected, () => setState('CONNECTED', 'ok'))
+    .on(LK.RoomEvent.ParticipantConnected, updateCounts)
+    .on(LK.RoomEvent.ParticipantDisconnected, updateCounts)
+
+  await room.connect(data.url, data.token)
+  joinedAt = Date.now()
+  $('room-chip').textContent = data.room
+  $('s-room').textContent = data.room
+  setState('CONNECTED', 'ok')
+  $('join').disabled = true
+  $('leave').disabled = false
+  updateCounts()
+}
+
+function updateCounts() {
+  if (!room) return
+  const remotes = Array.from(room.remoteParticipants.values())
+  const pubs = remotes.filter((p) => p.videoTrackPublications.size > 0).length
+  $('s-pubs').textContent = String(pubs)
+}
+
+function teardown(text, cls) {
+  for (const sid of Array.from(tiles.keys())) removeTile(sid)
+  setState(text, cls)
+  $('join').disabled = false
+  $('leave').disabled = true
+  $('s-pubs').textContent = '—'
+  $('s-rate').textContent = '—'
+  $('s-quality').textContent = '—'
+  $('cam-rows').innerHTML = '<tr><td colspan="7" style="color:var(--muted)">no feeds yet</td></tr>'
+  room = null
+}
+
+// ---- stats -------------------------------------------------------------
+// Every number below is one LiveKit reports, not one this page works out:
+//   * bitrate   -> track.currentBitrate, computed by the SDK's own receiver
+//                  monitor (RemoteVideoTrack.monitorReceiver -> computeBitrate)
+//   * the rest  -> track.getReceiverStats(), the SDK's normalised
+//                  VideoReceiverStats: frameWidth/Height, framesDecoded,
+//                  framesDropped, packetsReceived, packetsLost, jitter,
+//                  nackCount/pliCount, mimeType, decoderImplementation
+//   * quality   -> participant.connectionQuality, LiveKit's own rating
+// The one exception is labelled as such in the UI: fps is not a field LiveKit
+// normalises, so it is read from the browser's own inbound-rtp report. Nothing
+// here is a delta this page computed between two ticks — that was the previous
+// version, and a number we invent is a number we get to be wrong about.
+const QUALITY_TONE = { excellent: 'ok', good: 'ok', poor: 'warn', lost: 'err', unknown: '' }
+
+async function browserFps(track) {
+  // framesPerSecond is measured by the WebRTC stack; LiveKit does not copy it
+  // into VideoReceiverStats, so it comes from the raw report or not at all.
+  try {
+    const report = await track.getRTCStatsReport()
+    if (!report) return null
+    let fps = null
+    report.forEach((s) => {
+      if (s.type === 'inbound-rtp' && s.kind === 'video' && s.framesPerSecond != null) {
+        fps = s.framesPerSecond
+      }
+    })
+    return fps
+  } catch { return null }
+}
+
+async function pollStats() {
+  if (!room || tiles.size === 0) return
+  let totalBps = 0
+  const rows = []
+  const codecs = new Set()
+
+  for (const [, tile] of tiles) {
+    const track = tile.track
+    // SDK-computed, in bits per second.
+    const bps = track.currentBitrate || 0
+    totalBps += bps
+
+    let st = null
+    try { st = await track.getReceiverStats() } catch {}
+    const fps = await browserFps(track)
+
+    const res = st && st.frameWidth ? `${st.frameWidth}×${st.frameHeight}` : '—'
+    const lost = st && st.packetsLost != null ? st.packetsLost : null
+    const jitter = st && st.jitter != null ? Math.round(st.jitter * 1000) : null
+    const dropped = st && st.framesDropped != null ? st.framesDropped : null
+    if (st && st.mimeType) codecs.add(st.mimeType.replace('video/', ''))
+    if (st && st.decoderImplementation) codecs.add(`decoder: ${st.decoderImplementation}`)
+
+    // streamState is LiveKit's own: a paused feed is not a broken one.
+    const paused = track.streamState && track.streamState !== 'active'
+    rows.push(
+      `<tr><td class="name">${tile.name}${paused ? ' ⏸' : ''}</td>` +
+      `<td>${res}</td>` +
+      `<td>${fps != null ? Math.round(fps) : '—'}</td>` +
+      `<td>${bps ? (bps / 1e6).toFixed(2) : '—'}</td>` +
+      `<td class="${lost ? 'warn' : ''}">${lost != null ? lost : '—'}</td>` +
+      `<td>${jitter != null ? jitter : '—'}</td>` +
+      `<td class="${dropped ? 'warn' : ''}">${dropped != null ? dropped : '—'}</td></tr>`
+    )
+  }
+
+  $('cam-rows').innerHTML = rows.join('') ||
+    '<tr><td colspan="7" style="color:var(--muted)">no feeds yet</td></tr>'
+  $('s-rate').textContent = fmtRate(totalBps)
+  $('s-dur').textContent = joinedAt ? fmtDur(Date.now() - joinedAt) : '—'
+
+  // LiveKit's own verdict on the link, rather than an RTT this page interprets.
+  const pub = Array.from(room.remoteParticipants.values())[0]
+  const q = pub ? pub.connectionQuality : 'unknown'
+  const qEl = $('s-quality')
+  qEl.textContent = q
+  qEl.className = QUALITY_TONE[q] || ''
+
+  // Codec is not decoration: only H.264/H.265/AV1 can reach the Jetson's
+  // hardware encoder, so VP8 here means the robot fell back to software.
+  $('codec-note').textContent = codecs.size
+    ? Array.from(codecs).join(' · ')
+    : '—'
+}
+setInterval(pollStats, 1000)
+
+// ---- wiring ------------------------------------------------------------
+$('join').onclick = () => {
+  join($('room').value.trim()).catch((e) => {
+    setState('FAILED', 'err')
+    $('s-note').textContent = String(e.message || e)
+    $('join').disabled = false
+  })
+}
+$('leave').onclick = async () => {
+  if (room) await room.disconnect()
+  teardown('DISCONNECTED', '')
+}
+$('rooms').onclick = async () => {
+  const panel = $('rooms-panel')
+  const res = await fetch('/api/rooms', { cache: 'no-store' })
+  const data = await res.json()
+  const list = $('rooms-list')
+  list.innerHTML = ''
+  for (const r of data.rooms || []) {
+    const b = document.createElement('button')
+    b.textContent = `${r.name} — ${r.publishers} publisher(s), ${r.participants} participant(s)`
+    b.onclick = () => { $('room').value = r.name }
+    list.appendChild(b)
+  }
+  if (!(data.rooms || []).length) {
+    list.innerHTML = `<p class="note">${data.error ? 'Could not list rooms: ' + data.error : 'No rooms are live right now.'}</p>`
+  }
+  panel.hidden = false
+}
+
+// Prefill with this host's own robot, the way the Agora viewer prefills its
+// channel from the token server's get_channel().
+fetch('/api/config', { cache: 'no-store' })
+  .then((r) => r.json())
+  .then((d) => {
+    if (d.room) { $('room').value = d.room; $('room-chip').textContent = d.room }
+  })
+  .catch(() => {})
+</script>
+</body>
+</html>

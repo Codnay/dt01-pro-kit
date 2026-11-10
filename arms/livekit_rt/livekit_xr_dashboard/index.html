@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PiPER XR — LiveKit control</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <h1>PiPER XR operator</h1>
+          <p class="sub">1. Connect &rarr; 2. Take control &rarr; 3. Enter VR</p>
+        </div>
+        <div class="header-right">
+          <!-- Which arm this page will move. With several deployments live, an
+               operator who cannot see this can take control of the wrong robot
+               and only find out when it moves. -->
+          <b id="robot-badge" class="robot-badge">—</b>
+          <!-- Out of the three-step flow on purpose: releasing is an exit, not a
+               step, and an operator working down the row should never land on it. -->
+          <button id="btn-release" class="secondary" type="button" disabled>
+            Release control
+          </button>
+        </div>
+      </header>
+
+      <section class="panel">
+        <label for="robot">Robot</label>
+        <select id="robot">
+          <option value="">loading…</option>
+        </select>
+        <label for="operator-name">Operator name</label>
+        <input id="operator-name" type="text" placeholder="who is driving" />
+        <label for="axis-map">Axis map</label>
+        <select id="axis-map">
+          <option value="ros-default">ros-default</option>
+          <option value="ros-alt-y">ros-alt-y (mirrored lateral)</option>
+          <option value="identity">identity (raw WebXR)</option>
+        </select>
+      </section>
+
+      <section class="controls">
+        <button id="btn-connect" type="button">Connect</button>
+        <button id="btn-take" type="button" disabled>Take control</button>
+        <button id="btn-xr" type="button" disabled>Enter VR</button>
+      </section>
+
+      <section class="status">
+        <div class="wide"><span>Control</span><b id="status-control">Not connected</b></div>
+        <div><span>Link</span><b id="status-link">idle</b></div>
+        <div><span>VR</span><b id="status-xr">idle</b></div>
+        <div><span>Hands</span><b id="status-hands">—</b></div>
+        <div><span>Publish</span><b id="status-rate">—</b></div>
+        <div class="wide"><span>Inputs</span><b id="status-inputs">—</b></div>
+      </section>
+
+      <section class="logwrap">
+        <h2>Session log</h2>
+        <pre id="log"></pre>
+      </section>
+    </main>
+
+    <canvas id="xr-canvas"></canvas>
+    <script type="module" src="/static/app.js"></script>
+  </body>
+</html>

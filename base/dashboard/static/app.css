@@ -1,0 +1,449 @@
+/* DT-01 dashboard. Control-room dark, no external fonts or assets: the robot's
+   own access point has no internet, so everything here has to be local. */
+
+/* Instrument palette: near-neutral greys, one desaturated accent, and status
+   colours that read as indicator lamps rather than web UI. Saturation is spent
+   only where it carries meaning — the emergency stop keeps its full red. */
+:root {
+  --bg: #101215;
+  --panel: #17191d;
+  --panel-2: #1e2126;
+  --line: #2b2f36;
+  --line-soft: #23262c;
+  --text: #dfe3e8;
+  --dim: #949aa3;
+  --faint: #6b727c;
+  --accent: #6f97b8;
+  --ok: #6f9e6a;
+  --warn: #bf9440;
+  --danger: #c4574a;
+  --danger-deep: #6e2a22;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.5 var(--sans);
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ---------------------------------------------------------------- header */
+
+header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 14px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+
+.brand { font-weight: 650; letter-spacing: .04em; font-size: 13px; }
+.brand small { color: var(--faint); font-weight: 400; display: block; font-size: 11px; }
+
+.spacer { flex: 1; }
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  min-width: 84px;
+  padding: 0 10px;
+  border-left: 1px solid var(--line-soft);
+}
+.stat b { font: 600 15px/1.2 var(--mono); }
+.stat span { color: var(--faint); font-size: 10px; text-transform: uppercase; letter-spacing: .07em; }
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  font: 600 11px/1.6 var(--mono);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+.chip.ok    { border-color: #1d4429; background: #10261a; color: var(--ok); }
+.chip.warn  { border-color: #4a3a10; background: #241d0c; color: var(--warn); }
+.chip.bad   { border-color: #5c1f1b; background: #2a1210; color: var(--danger); }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.dot.pulse { animation: pulse 1.4s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .25; } }
+
+/* --------------------------------------------------------------- e-stop */
+
+.estop {
+  padding: 11px 20px;
+  border: 1px solid #d2554a;
+  border-radius: 8px;
+  background: #b8352b;
+  color: #fff;
+  font: 700 12px/1 var(--sans);
+  letter-spacing: .1em;
+  cursor: pointer;
+  box-shadow: 0 2px 0 #6e2118;
+}
+.estop:active { transform: translateY(1px); box-shadow: 0 1px 0 #6e2118; }
+.estop.released {
+  background: var(--panel-2);
+  border-color: var(--warn);
+  color: var(--warn);
+  box-shadow: none;
+}
+
+/* ----------------------------------------------------------- safety bar */
+
+.safety {
+  display: none;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  background: #2a1210;
+  border-bottom: 1px solid #5c1f1b;
+  color: #ffb3ad;
+  font-size: 13px;
+}
+.safety.show { display: flex; }
+.safety b { color: var(--danger); letter-spacing: .05em; }
+
+/* ------------------------------------------------------------- layout */
+
+main {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(340px, 1.2fr) minmax(400px, 1fr);
+  gap: 1px;
+  background: var(--line);
+  min-height: 0;
+}
+@media (max-width: 900px) {
+  main { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
+}
+
+.col { background: var(--bg); display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+
+/* --------------------------------------------------------------- map */
+
+.mapwrap { flex: 1; position: relative; min-height: 260px; background: #0a0e14; }
+#map { display: block; width: 100%; height: 100%; cursor: grab; }
+#map.dragging { cursor: grabbing; }
+
+.maptools {
+  position: absolute; top: 10px; left: 10px;
+  display: flex; gap: 6px; flex-wrap: wrap; align-items: center;
+}
+.maplegend {
+  position: absolute; bottom: 10px; left: 10px;
+  display: flex; gap: 12px; flex-wrap: wrap;
+  padding: 6px 10px; border-radius: 6px;
+  background: rgba(13, 17, 23, .82); border: 1px solid var(--line);
+  font: 500 10px/1.4 var(--mono); color: var(--dim);
+}
+.maplegend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; }
+.mapreadout {
+  position: absolute; top: 10px; right: 10px;
+  white-space: pre-line;
+  padding: 6px 10px; border-radius: 6px;
+  background: rgba(13, 17, 23, .82); border: 1px solid var(--line);
+  font: 500 11px/1.5 var(--mono); color: var(--dim); text-align: right;
+}
+
+/* ------------------------------------------------------------ notices */
+
+.notices {
+  height: 132px; overflow-y: auto;
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+  padding: 8px 12px;
+  font: 12px/1.55 var(--mono);
+}
+.notices .row { display: flex; gap: 8px; color: var(--dim); }
+.notices .row b { color: var(--text); font-weight: 600; }
+.notices .row.warn b { color: var(--warn); }
+.notices .row.bad b { color: var(--danger); }
+.notices .empty { color: var(--faint); }
+
+/* --------------------------------------------------------------- tabs */
+
+.tabs { display: flex; background: var(--panel); border-bottom: 1px solid var(--line); overflow-x: auto; }
+.tabs button {
+  flex: 1; min-width: 92px;
+  padding: 11px 8px;
+  background: none; border: none; border-bottom: 2px solid transparent;
+  color: var(--dim); font: 600 12px/1 var(--sans); letter-spacing: .03em;
+  cursor: pointer; white-space: nowrap;
+}
+.tabs button:hover { color: var(--text); background: var(--panel-2); }
+.tabs button[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+.tabs button .badge {
+  display: inline-block; margin-left: 5px; padding: 1px 5px; border-radius: 8px;
+  background: var(--danger); color: #fff; font: 700 9px/1.5 var(--mono);
+}
+/* An explicit display beats the UA rule for [hidden], so restate it here or the
+   obstacle badge is on permanently. */
+.tabs button .badge[hidden] { display: none; }
+
+.panels { flex: 1; overflow-y: auto; padding: 14px; }
+.panel { display: none; }
+.panel.active {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 14px;
+  align-content: start;
+  align-items: start;
+  max-width: 1180px;              /* stop cards sprawling on a wide screen */
+  margin: 0 auto;
+}
+/* Anything that reads as a table or a wide list wants the full row rather
+   than half of one. */
+.panel.active > .card.full { grid-column: 1 / -1; }
+/* A panel with a single card should not inherit the width meant for three. */
+#panel-lift.active { max-width: 460px; margin: 0; }
+
+/* -------------------------------------------------------------- cards */
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 13px 14px;
+  margin-bottom: 12px;
+}
+.card > h3 {
+  margin: 0 0 4px;
+  font: 600 12px/1.4 var(--sans);
+  text-transform: uppercase; letter-spacing: .08em; color: var(--dim);
+}
+.card > p.hint { margin: 0 0 11px; color: var(--faint); font-size: 12px; }
+.card .hint code { font-family: var(--mono); color: var(--dim); }
+
+.note {
+  border-left: 3px solid var(--warn);
+  background: #201a0b;
+  padding: 8px 11px; border-radius: 0 5px 5px 0;
+  color: #e5cf9a; font-size: 12px; margin: 0 0 11px;
+}
+.note.bad { border-color: var(--danger); background: #241110; color: #ffb3ad; }
+.note.info { border-color: var(--accent); background: #101c2b; color: #a8cdf6; }
+
+/* ------------------------------------------------------------ controls */
+
+button.btn {
+  padding: 8px 13px;
+  background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--line); border-radius: 6px;
+  font: 600 12px/1 var(--sans); cursor: pointer;
+}
+button.btn:hover:not(:disabled) { border-color: var(--faint); background: #232c38; }
+button.btn:disabled { opacity: .38; cursor: not-allowed; }
+button.btn.primary { background: #16406f; border-color: #2c6cb5; color: #d6e9ff; }
+button.btn.primary:hover:not(:disabled) { background: #1b4d86; }
+button.btn.danger { background: #3a1512; border-color: #7d2b23; color: #ffb3ad; }
+button.btn.danger:hover:not(:disabled) { background: #4b1a16; }
+button.btn.on { background: #12351f; border-color: #2a6b3c; color: #86e29a; }
+
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.row + .row { margin-top: 9px; }
+
+input[type="text"], input[type="number"], select {
+  padding: 7px 9px;
+  background: var(--bg); color: var(--text);
+  border: 1px solid var(--line); border-radius: 6px;
+  font: 13px/1.2 var(--mono); min-width: 0;
+}
+input:focus, select:focus { outline: none; border-color: var(--accent); }
+input[type="range"] { accent-color: var(--accent); flex: 1; min-width: 120px; }
+label.field { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--dim); }
+label.inline { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text); }
+
+/* --------------------------------------------------------------- pad */
+
+.pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; max-width: 260px; margin: 0 auto; }
+.pad button {
+  aspect-ratio: 1;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px;
+  color: var(--text); font: 600 20px/1 var(--sans); cursor: pointer;
+  touch-action: none; user-select: none;
+}
+.pad button:disabled { opacity: .3; cursor: not-allowed; }
+.pad button.held:not(:disabled) { background: #16406f; border-color: var(--accent); color: #fff; }
+.pad button.halt { background: #3a1512; border-color: #7d2b23; color: #ffb3ad; font-size: 12px; }
+.pad .gap { visibility: hidden; }
+
+.deadman {
+  margin-top: 11px; height: 5px; border-radius: 3px;
+  background: var(--panel-2); overflow: hidden;
+}
+.deadman i { display: block; height: 100%; width: 0; background: var(--ok); transition: width .1s linear; }
+.deadman.stale i { background: var(--faint); }
+
+/* -------------------------------------------------------------- table */
+
+table { width: 100%; border-collapse: collapse; font: 12px/1.5 var(--mono); }
+th {
+  text-align: left; padding: 5px 7px;
+  color: var(--faint); font: 600 10px/1.5 var(--sans);
+  text-transform: uppercase; letter-spacing: .07em;
+  border-bottom: 1px solid var(--line);
+}
+td { padding: 5px 7px; border-bottom: 1px solid var(--line-soft); }
+tr.trip td { background: #241110; color: #ffb3ad; }
+tr.off td { color: var(--faint); }
+tr.click:hover td { background: var(--panel-2); cursor: pointer; }
+td.num { text-align: right; }
+
+.bar { height: 5px; border-radius: 3px; background: var(--panel-2); overflow: hidden; min-width: 46px; }
+.bar i { display: block; height: 100%; background: var(--accent); }
+.bar i.near { background: var(--danger); }
+
+/* ------------------------------------------------------------ sensors */
+
+.fan { width: 100%; height: 225px; display: block; }
+
+.pointlist { max-height: 260px; overflow-y: auto; }
+.badge-type {
+  padding: 1px 6px; border-radius: 4px; font: 600 9px/1.6 var(--mono);
+  text-transform: uppercase; letter-spacing: .05em;
+  border: 1px solid var(--line); color: var(--dim); background: var(--panel-2);
+}
+.badge-type.charge { border-color: #4a3a10; color: var(--warn); background: #241d0c; }
+.badge-type.init   { border-color: #16406f; color: #7ab6f5; background: #101c2b; }
+.badge-type.inspect{ border-color: #33265c; color: #b39ce8; background: #191333; }
+
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; font: 12px/1.7 var(--mono); }
+.kv dt { color: var(--faint); }
+.kv dd { margin: 0; text-align: right; }
+
+.batt { height: 18px; border-radius: 4px; background: var(--panel-2); border: 1px solid var(--line); overflow: hidden; position: relative; }
+.batt i { display: block; height: 100%; background: linear-gradient(90deg, #2f8f45, #3fb950); }
+.batt i.low { background: linear-gradient(90deg, #a06a12, var(--warn)); }
+.batt i.crit { background: linear-gradient(90deg, #a02c24, var(--danger)); }
+.batt b { position: absolute; inset: 0; display: grid; place-items: center; font: 700 11px/1 var(--mono); text-shadow: 0 1px 2px #000; }
+
+.arr { display: flex; gap: 5px; flex-wrap: wrap; }
+.arr input { width: 66px; text-align: right; }
+
+.toast {
+  position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+  display: flex; flex-direction: column; gap: 7px; z-index: 50; align-items: center;
+}
+.toast div {
+  padding: 9px 15px; border-radius: 7px;
+  background: var(--panel-2); border: 1px solid var(--line);
+  box-shadow: 0 6px 24px rgba(0,0,0,.5); font-size: 13px; max-width: 78vw;
+}
+.toast div.bad { border-color: #7d2b23; background: #2a1210; color: #ffb3ad; }
+.toast div.ok  { border-color: #1d4429; background: #10261a; color: #86e29a; }
+
+kbd {
+  padding: 1px 5px; border-radius: 4px; border: 1px solid var(--line);
+  background: var(--panel-2); font: 600 11px/1.6 var(--mono); color: var(--dim);
+}
+
+/* --------------------------------------------------------- lifting column */
+.lift-readout { display: flex; align-items: baseline; gap: 6px; margin-bottom: 8px; }
+.lift-readout b { font-size: 30px; font-variant-numeric: tabular-nums; color: #e8eef5; }
+.lift-readout span { color: #8a99a8; font-size: 13px; }
+.lift-rate { margin-left: 10px; font-variant-numeric: tabular-nums; }
+.lift-act { margin-left: auto; text-transform: uppercase; letter-spacing: .04em; }
+.lift-track { height: 8px; border-radius: 4px; background: #16202b;
+              border: 1px solid #22303f; overflow: hidden; }
+.lift-track i { display: block; height: 100%; width: 0; background: #3f9c6d;
+                transition: width .18s linear; }
+.lift-track.moving i { background: #e0a13c; }
+#liftStep { background: #16202b; color: #cfdae5; border: 1px solid #2a3947;
+            border-radius: 6px; padding: 6px 8px; }
+
+/* ------------------------------------------------- collapsible map column
+   The map is the biggest thing on screen and not what most sessions are for.
+   It folds to a single bar, and the panels take the full width behind it. */
+.collapse {
+  display: flex; align-items: center; gap: 9px; width: 100%;
+  padding: 10px 14px; border: 0; border-bottom: 1px solid var(--line);
+  background: var(--panel); color: var(--text);
+  font: 600 12px/1 inherit; letter-spacing: .06em; text-transform: uppercase;
+  cursor: pointer; text-align: left;
+}
+.collapse:hover { background: var(--panel-2); }
+.collapse small {
+  margin-left: auto; font-weight: 400; letter-spacing: 0;
+  text-transform: none; color: var(--dim); font-size: 12px;
+}
+.collapse .caret { transition: transform .15s ease; font-size: 11px; color: var(--dim); }
+.collapse[aria-expanded="false"] .caret { transform: rotate(-90deg); }
+.mapbody { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+main.map-collapsed { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
+main.map-collapsed .mapbody { display: none; }
+main.map-collapsed #mapCol { min-height: 0; }
+
+/* ------------------------------------------------------------- lift panel */
+.lift-scale {
+  display: flex; justify-content: space-between; margin-top: 5px;
+  font: 11px/1 var(--mono); color: var(--dim);
+}
+.lift-target { display: block; margin-top: 16px; }
+.lift-target input[type=range] { margin-top: 7px; }
+.btn.wide { flex: 1; padding: 10px 14px; font-size: 14px; }
+
+/* ------------------------------------------------------------ refinements
+   Quieter chrome so the readings carry the page rather than the labels. */
+.card h3 {
+  font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--dim); font-weight: 600;
+}
+.hint { line-height: 1.55; }
+.tabs button { letter-spacing: .04em; }
+
+/* A disabled control should read as unavailable, not as merely dim. */
+button.btn:disabled, input:disabled, select:disabled {
+  opacity: .34; cursor: not-allowed; filter: grayscale(.5);
+}
+
+.lift-actions { align-items: center; }
+.lift-actions .spacer { flex: 1; }
+
+/* ---------------------------------------------------------------- phones
+   The dashboard gets opened on whatever is to hand, including a phone beside
+   the robot. Below 720px it becomes one column, the header keeps only what a
+   glance needs, and every target grows to something a thumb can hit. */
+@media (max-width: 720px) {
+  header { flex-wrap: wrap; gap: 7px 9px; padding: 9px 11px; }
+  header .brand { width: 100%; font-size: 13px; }
+  header .stat { display: none; }
+  header .spacer { display: none; }
+  header .chip { font-size: 11px; }
+  #controlBtn { margin-left: auto; }
+  .estop { padding: 9px 12px; font-size: 12px; }
+
+  main { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
+  .mapwrap { min-height: 200px; }
+  .panels { padding: 10px; }
+  .panel.active { grid-template-columns: 1fr; gap: 10px; }
+  #panel-lift.active { max-width: none; }
+
+  .tabs button { padding: 11px 13px; font-size: 13px; }
+  button.btn { padding: 10px 13px; font-size: 13px; }
+  .pad { max-width: none; }
+  .pad button { padding: 16px 0; font-size: 18px; }
+  input[type=range] { height: 26px; }
+  .lift-readout b { font-size: 26px; }
+  .card { padding: 12px; }
+  table { font-size: 12px; }
+}
+
+/* Coarse pointers get bigger hit targets whatever the screen size. */
+@media (pointer: coarse) {
+  button.btn, .tabs button { min-height: 40px; }
+  .pad button { min-height: 56px; }
+}
